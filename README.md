@@ -30,7 +30,7 @@
 
 ```bash
 git clone "https://github.com/GarimaPrachiGT/pdf-gemini-extractor.git"
-cd pdf-gemini-extractor
+cd Bunge
 ```
 
 ### 2. Create and Activate a Virtual Environment
