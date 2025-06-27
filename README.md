@@ -59,6 +59,7 @@ C. Export in bash
 
 ```bash
 export GOOGLE_API_KEY="your-google-api-key-here"
+# For Windows: set GOOGLE_API_KEY=your-google-api-key-here (cmd.exe)
 ```
 
 Get your API key from:
