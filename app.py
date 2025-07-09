@@ -317,7 +317,7 @@ if st.button("Extract and Analyze") and uploaded_files:
                         top_k=3,
                         min_score=0.75
                     )
-
+            # print(pairs)
             for p in pairs:
                 st.markdown(f"**Clause:** {p['clause']}")
                 st.markdown(f"**Remark:** {p['remark']}")
