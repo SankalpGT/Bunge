@@ -1,0 +1,32 @@
+# Core packages
+streamlit
+pandas
+python-dotenv
+boto3
+google-generativeai
+google-cloud-aiplatform
+google-auth
+google-auth-httplib2
+google-api-core
+google-api-python-client
+
+# LanceDB
+lancedb
+
+# S3 handling and system interaction
+requests
+protobuf
+setuptools
+wheel
+
+
+
+# NLP and embeddings
+scikit-learn
+transformers
+tokenizers
+tqdm
+
+# Compatibility fixes
+numpy==1.26.4  # avoid build from source
+shapely==2.0.3 # safe version, install manually if needed
