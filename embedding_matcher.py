@@ -50,7 +50,6 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
     for j, txt in enumerate(remarks):
         records.append({"id": base + j, "type": "remark", "text": txt, "vector": get_embedding(txt)})
 
-    print(remarks)
     if not db:
         raise RuntimeError("LanceDB connection not available; hybrid search cannot proceed.")
 
@@ -58,7 +57,7 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
     # table_name = "laytime_pairs"
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     table_name = f"laytime_pairs_{timestamp}_{uuid.uuid4().hex[:6]}" 
-    print(f"Table name: {table_name}") 
+
     try:
         # Attempt to create the table anew with all records
         table = db.create_table(table_name, data=records)
@@ -74,10 +73,6 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
         print(f"✅ FTS index created for {table_name}")
     except Exception as e:
         print(f"❌ Failed to create FTS index: {e}")
-
-    print(f"indices: {table.list_indices()}")
-    print(table.index_stats("text_idx"))
-
 
     pairs = []
     for rec in records[len(clauses):]:  # only remarks
@@ -104,7 +99,6 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
             hits = arrow_table.to_pandas()
         for _, hit in hits.iterrows():
             # Only consider remark rows
-            print(f"Hit: {hit}\n")
             if hit["type"] != "clause":
                 continue
 
@@ -115,6 +109,5 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
                 "clause":         hit["text"],
                 "score":          round(1.0 - score, 4)
             })
-            
-    print(pairs)
+
     return pairs

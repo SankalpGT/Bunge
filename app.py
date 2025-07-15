@@ -9,6 +9,7 @@ from deduction_engine import calculate_deduction_from_event
 #from deduction_engine import get_deduction
 from s3_handler import upload_to_s3
 from laytime_agent import extract_metadata_from_docs
+from laytime_agent import LaytimeCalculator
 from excel_exporter import generate_excel_from_extracted_data
 
 # from datetime import datetime
@@ -24,6 +25,58 @@ st.title("📄 Gemini Laytime Multi-Document Processor")
 REQUIRED_DOCUMENTS = ["Contract", "SoF"]
 OPTIONAL_DOCUMENTS = ["LoP", "NOR", "PumpingLog"]
 ALL_EXPECTED = REQUIRED_DOCUMENTS + OPTIONAL_DOCUMENTS
+
+def extract_nor_delay_hours(clause_text: str) -> int:
+    """
+    Parse “<N> hours after” from the NOR clause text.
+    """
+    pattern = r'(\d+)(?:\s*\([^)]*\))?\s*hours?\s+after'
+    m = re.search(pattern, clause_text, re.IGNORECASE)
+    # print(f"m: {m}")
+    return int(m.group(1)) if m else 0
+
+def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
+    """
+    Given a DataFrame with columns [start_time,end_time,event_phase,reason],
+    1) Parse the delay from the NOR clause,
+    2) Build one synthetic NOR row for [tender → tender+delay],
+    3) Clip any overlapping events to start at laytime_start,
+    4) Filter out all original rows before laytime_start,
+    5) Prepend the NOR row.
+    """
+    d = df.copy()
+    # parse to datetimes
+    d['start_time'] = pd.to_datetime(d['start_time'])
+    d['end_time']   = pd.to_datetime(d['end_time'])
+    d = d.sort_values('start_time').reset_index(drop=True)
+
+    nor_tender = d.loc[0, 'start_time']
+    # print(f"nor_tender: {nor_tender}")
+    delay_h    = extract_nor_delay_hours(nor_clause_text)
+    # print(f"Delay:{delay_h}")
+    laytime_start = nor_tender + timedelta(hours=delay_h)
+
+    # synthetic NOR row
+    nor_row = {
+        'start_time': nor_tender,
+        'end_time':   laytime_start,
+        'event_phase':'NOR',
+        'reason':     f'Notice of Readiness period ({delay_h} h)'
+    }
+
+    # clip overlapping
+    mask = (d['start_time'] < laytime_start) & (d['end_time'] > laytime_start)
+    d.loc[mask, 'start_time'] = laytime_start
+
+    # keep only rows starting at/after laytime_start
+    d_after = d[d['start_time'] >= laytime_start].reset_index(drop=True)
+
+    # combine
+    out = pd.concat([pd.DataFrame([nor_row]), d_after], ignore_index=True)
+    # back to string for display
+    out['start_time'] = out['start_time'].dt.strftime("%Y-%m-%d %H:%M")
+    out['end_time']   = out['end_time'].dt.strftime("%Y-%m-%d %H:%M")
+    return out
 
 def parse_working_hours(text):
     mon_fri_match = re.search(r"from\s*(\d{2}:\d{2})\s*to\s*(\d{2}:\d{2})\s*Hours on Monday to Friday", text)
@@ -197,9 +250,26 @@ if st.button("Extract and Analyze") and uploaded_files:
         if blocks:
             st.dataframe(pd.DataFrame(blocks))
 
+
+        # ─ Step 2.5: Insert NOR split ─────────────────────────────────────────────────
+        st.header("⏱ Insert NOR Period & Clip Logs")
+        # grab the NOR clause content from your flat clause_texts
+        nor_clause_text = ""
+        for ct in clause_texts:
+            # print(f"clause_text: {ct}")
+            lower = ct.lower()
+            if "notice of readiness" in lower or "nor" in lower:
+                nor_clause_text = ct.split(":",1)[1].strip() if ":" in ct else ct
+                break
+        # print(f"nor_clause : {nor_clause_text}")
+
+        nor_df = split_nor_period(pd.DataFrame(blocks), nor_clause_text)
+        st.dataframe(nor_df)
+
         # Step 3: Clause–Remark Matching
         st.header("Step 3: Clause–Remark Matching")
-        remark_texts = [b["reason"] or b["event_phase"] for b in blocks]
+        records = nor_df.to_dict("records")
+        remark_texts = [b["reason"] or b["event_phase"] for b in records]
         pairs = []
 
         if clause_texts and remark_texts:
@@ -276,7 +346,19 @@ if st.button("Extract and Analyze") and uploaded_files:
             )
             st.success("✅ Deductions saved to S3.")
 
-    # Final block: generate Excel if both Contract and SoF were extracted
+        # Step 5: Final Laytime Summary
+        if blocks and deductions:
+            calc = LaytimeCalculator(records, deductions)
+            total = calc.total_block_hours()
+            deduc = calc.total_deduction_hours()
+            net   = calc.net_laytime_hours()
+
+            st.header("🧮 Laytime Calculation Summary")
+            st.markdown(f"- **Total Working-Hour Blocks:** {total:.2f} hrs")
+            st.markdown(f"- **Total Deductions:**          {deduc:.2f} hrs")
+            st.markdown(f"- **Net Laytime Used:**         {net:.2f} hrs")
+
+        # Final block: generate Excel if both Contract and SoF were extracted
         if "Contract" in extracted_data and "SoF" in extracted_data:
             contract_raw = extracted_data["Contract"]
             sof_raw = extracted_data["SoF"]

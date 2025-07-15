@@ -4,6 +4,8 @@ import re
 import pandas as pd
 from google.cloud import aiplatform
 import google.generativeai as genai
+from datetime import datetime
+from typing import List, Dict
 
 # ---------- CONFIG ----------
 PROJECT_ID = "pdf-extraction-464009"
@@ -108,3 +110,29 @@ You will receive:
         return json.loads(match.group(0)), raw
     except Exception as e:
         return {"error": str(e)}, raw if 'raw' in locals() else ""
+
+class LaytimeCalculator:
+    def __init__(self, records: List[Dict], deductions: List[Dict]):
+        """
+        blocks:  List of {"start_time": "YYYY-MM-DD HH:MM", "end_time": "...", ...}
+        deductions: List of {"deduct": bool, "total_hours": float, ...}
+        """
+        self.blocks = records
+        self.deductions = deductions
+
+    def _parse_dt(self, s: str) -> datetime:
+        return datetime.strptime(s, "%Y-%m-%d %H:%M")
+
+    def total_block_hours(self) -> float:
+        total = 0.0
+        for b in self.blocks[1:]:
+            st = self._parse_dt(b["start_time"])
+            et = self._parse_dt(b["end_time"])
+            total += (et - st).total_seconds() / 3600.0
+        return total
+
+    def total_deduction_hours(self) -> float:
+        return sum(d["total_hours"] for d in self.deductions if d.get("deduct", False))
+
+    def net_laytime_hours(self) -> float:
+        return self.total_block_hours() - self.total_deduction_hours()
