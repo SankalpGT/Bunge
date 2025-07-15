@@ -28,8 +28,8 @@ def get_embedding(text):
     
 try:
     db = lancedb.connect(
-    uri="db://laytimecalculation-pf59ew",
-    api_key="sk_LKESM6IU6FBFPOAJE636YPCNE6IH5NCBVW3X6535ABJZL36MYZZQ====",
+    uri="db://laytime-a1cksj",
+    api_key="sk_BIS2K7WWEVF47AT4B4KSYBBCNZDBU4K5ZT6BTHZ676AG3QJW7TZQ====",
     region="us-east-1"
     )
 except Exception as e:

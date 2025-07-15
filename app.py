@@ -35,28 +35,73 @@ def extract_nor_delay_hours(clause_text: str) -> int:
     # print(f"m: {m}")
     return int(m.group(1)) if m else 0
 
+# def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
+#     """
+#     Given a DataFrame with columns [start_time,end_time,event_phase,reason],
+#     1) Parse the delay from the NOR clause,
+#     2) Build one synthetic NOR row for [tender → tender+delay],
+#     3) Clip any overlapping events to start at laytime_start,
+#     4) Filter out all original rows before laytime_start,
+#     5) Prepend the NOR row.
+#     """
+#     d = df.copy()
+#     # parse to datetimes
+#     d['start_time'] = pd.to_datetime(d['start_time'])
+#     d['end_time']   = pd.to_datetime(d['end_time'])
+#     d = d.sort_values('start_time').reset_index(drop=True)
+
+#     nor_tender = d.loc[0, 'start_time']
+#     # print(f"nor_tender: {nor_tender}")
+#     delay_h    = extract_nor_delay_hours(nor_clause_text)
+#     # print(f"Delay:{delay_h}")
+#     laytime_start = nor_tender + timedelta(hours=delay_h)
+
+#     # synthetic NOR row
+#     nor_row = {
+#         'start_time': nor_tender,
+#         'end_time':   laytime_start,
+#         'event_phase':'NOR',
+#         'reason':     f'Notice of Readiness period ({delay_h} h)'
+#     }
+
+#     # clip overlapping
+#     mask = (d['start_time'] < laytime_start) & (d['end_time'] > laytime_start)
+#     d.loc[mask, 'start_time'] = laytime_start
+
+#     # keep only rows starting at/after laytime_start
+#     d_after = d[d['start_time'] >= laytime_start].reset_index(drop=True)
+
+#     # combine
+#     out = pd.concat([pd.DataFrame([nor_row]), d_after], ignore_index=True)
+#     # back to string for display
+#     out['start_time'] = out['start_time'].dt.strftime("%Y-%m-%d %H:%M")
+#     out['end_time']   = out['end_time'].dt.strftime("%Y-%m-%d %H:%M")
+#     return out
+
 def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
-    """
-    Given a DataFrame with columns [start_time,end_time,event_phase,reason],
-    1) Parse the delay from the NOR clause,
-    2) Build one synthetic NOR row for [tender → tender+delay],
-    3) Clip any overlapping events to start at laytime_start,
-    4) Filter out all original rows before laytime_start,
-    5) Prepend the NOR row.
-    """
     d = df.copy()
-    # parse to datetimes
     d['start_time'] = pd.to_datetime(d['start_time'])
     d['end_time']   = pd.to_datetime(d['end_time'])
     d = d.sort_values('start_time').reset_index(drop=True)
 
-    nor_tender = d.loc[0, 'start_time']
-    # print(f"nor_tender: {nor_tender}")
-    delay_h    = extract_nor_delay_hours(nor_clause_text)
-    # print(f"Delay:{delay_h}")
-    laytime_start = nor_tender + timedelta(hours=delay_h)
+    nor_tender   = d.loc[0, 'start_time']
+    delay_h      = extract_nor_delay_hours(nor_clause_text)
+    default_cut  = nor_tender + timedelta(hours=delay_h)
 
-    # synthetic NOR row
+    # —— new: see if any "Commenced Discharging" happens earlier
+    mask_commence = (
+        d['event_phase']
+         .str
+         .contains('commenced discharging', case=False, na=False)
+    )
+    if mask_commence.any():
+        first_commence = d.loc[mask_commence, 'start_time'].min()
+        # pick the earlier of (NOR+delay) vs first commencement
+        laytime_start = min(default_cut, first_commence)
+    else:
+        laytime_start = default_cut
+
+    # synthetic NOR row now spans from tender → actual laytime_start
     nor_row = {
         'start_time': nor_tender,
         'end_time':   laytime_start,
@@ -64,16 +109,15 @@ def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
         'reason':     f'Notice of Readiness period ({delay_h} h)'
     }
 
-    # clip overlapping
+    # clip any row that straddles the new laytime_start
     mask = (d['start_time'] < laytime_start) & (d['end_time'] > laytime_start)
     d.loc[mask, 'start_time'] = laytime_start
 
-    # keep only rows starting at/after laytime_start
+    # drop everything before laytime_start, then prepend the NOR row
     d_after = d[d['start_time'] >= laytime_start].reset_index(drop=True)
+    out     = pd.concat([pd.DataFrame([nor_row]), d_after], ignore_index=True)
 
-    # combine
-    out = pd.concat([pd.DataFrame([nor_row]), d_after], ignore_index=True)
-    # back to string for display
+    # format for display
     out['start_time'] = out['start_time'].dt.strftime("%Y-%m-%d %H:%M")
     out['end_time']   = out['end_time'].dt.strftime("%Y-%m-%d %H:%M")
     return out
@@ -297,7 +341,7 @@ if st.button("Extract and Analyze") and uploaded_files:
             remark = p["remark"]
 
             # Find block loosely matching this remark
-            match = next((b for b in blocks if remark in (b["reason"] or "") or remark in (b["event_phase"] or "")), None)
+            match = next((b for b in records if remark in (b["reason"] or "") or remark in (b["event_phase"] or "")), None)
             if not match:
                 continue
 
@@ -347,7 +391,7 @@ if st.button("Extract and Analyze") and uploaded_files:
             st.success("✅ Deductions saved to S3.")
 
         # Step 5: Final Laytime Summary
-        if blocks and deductions:
+        if records and deductions:
             calc = LaytimeCalculator(records, deductions)
             total = calc.total_block_hours()
             deduc = calc.total_deduction_hours()
