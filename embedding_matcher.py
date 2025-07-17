@@ -37,7 +37,7 @@ except Exception as e:
     db = None
 
 
-def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
+def match_clause_remark_pairs(clauses, remarks):
     """
     Stores clause and remark embeddings in LanceDB and performs semantic search
     to find top_k remark matches for each clause, filtered by a min score.
@@ -49,25 +49,19 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
     base = len(clauses)
     for j, txt in enumerate(remarks):
         records.append({"id": base + j, "type": "remark", "text": txt, "vector": get_embedding(txt)})
-
     if not db:
         raise RuntimeError("LanceDB connection not available; hybrid search cannot proceed.")
-
     # 2) Create or get remote table
-    # table_name = "laytime_pairs"
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     table_name = f"laytime_pairs_{timestamp}_{uuid.uuid4().hex[:6]}" 
 
     try:
-        # Attempt to create the table anew with all records
         table = db.create_table(table_name, data=records)
     except Exception:
-        # If it already exists, open and append
         table = db.open_table(table_name)
         table.add(records)
 
     try:
-        # table.create_fts_index("text")
         table.create_fts_index("text")
         table.wait_for_index(["text_idx"])
         print(f"✅ FTS index created for {table_name}")
@@ -84,7 +78,6 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
                 .vector(rec["vector"])
                 .text(rec["text"])
                 .distance_type("cosine")
-                .limit(top_k)
             )
             arrow_table = search_builder.to_arrow()
             hits = arrow_table.to_pandas()
@@ -97,17 +90,23 @@ def match_clause_remark_pairs(clauses, remarks, top_k=3, min_score=0.75):
             )
             arrow_table = search_builder.to_arrow()
             hits = arrow_table.to_pandas()
-        for _, hit in hits.iterrows():
-            # Only consider remark rows
-            if hit["type"] != "clause":
-                continue
+        print(f"Hits: {hits}")
 
-            score = hit.get("_relevance_score")
-            # if score >= min_score:
-            pairs.append({
-                "remark":         rec["text"],
-                "clause":         hit["text"],
-                "score":          round(1.0 - score, 4)
-            })
+        # for _, hit in hits.iterrows():
+        #     # Only consider remark rows
+        #     if hit["type"] != "clause":
+        #         continue
+
+        clause_hits = hits[hits["type"] == "clause"]
+        if clause_hits.empty:
+            continue
+        best = clause_hits.loc[clause_hits["_relevance_score"].idxmax()]
+
+        score = best["_relevance_score"]
+        pairs.append({
+            "remark":         rec["text"],
+            "clause":         best["text"],
+            "score":          round(1.0 - score, 4)
+        })
 
     return pairs

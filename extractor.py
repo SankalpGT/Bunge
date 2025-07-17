@@ -29,7 +29,7 @@ def extract_with_gemini(pdf_path):
     - Email (in PDF form)
 
     Your task is to:
-    1. Identify the document_type (e.g., SoF, Contract, LoP, etc.)
+    1. Identify and return `document_type` as one of exactly: Contract, SoF, LoP, NOR, PumpingLog.
     2. Extract all meaningful structured information from the document, regardless of layout or template.
 
     ## Output Requirements
@@ -49,13 +49,22 @@ def extract_with_gemini(pdf_path):
     ## Examples of Structuring (For Guidance Only)
 
     - If it's a **Statement of Facts**:
-        - Extract chronological events with timestamps, event descriptions, and remarks
+        - Extract chronological events with timestamps, event descriptions, and remarks.
+        - **For any time range in “HH:MM/HH:MM” format, do NOT use a single “from_to” field.  
+                Instead split it into two fields:  
+                "start_time": "HH:MM",  
+                "end_time":   "HH:MM"
+                Make sure the names for 'from' is 'start_time and 'to' is 'end_time'**
+        - For time in "Date & Time" format keep it the same heading instead of splitting it.
+        - Rename the heading of the log table to 'Chronological Events' irrespective of what is given in the document.
     - If it's a **Contract**:
         - If clause numbers like 4.1 or 4.2 are present, retain them in titles, but do not rely on them.
         - Parse section titles from visual layout, headings, or all-caps formatting.
         - Group related content under its section and preserve paragraph or bullet structure inside each.
         - Include all information relevant to terms, risks, prices, parties, dates, weather & holiday exemptions and procedures.
         - Do NOT summarize. Do NOT infer. Just extract and preserve structure from the contract as written.
+        - The clauses should be inside "sections" key.
+        - The working hours should be framed like "'Monday to Friday' : 'HH:MM to HH:MM'" and "'Saturday' : 'HH:MM to HH:MM'" if provided. Add it to the start of the extracted json file.
     - If it's a **Letter of Protest**:
         - Extract protest reason, submitted by/to, timestamps, signatures
     - If NOR

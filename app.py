@@ -5,16 +5,14 @@ import tempfile
 from extractor import extract_with_gemini
 from embedding_matcher import match_clause_remark_pairs
 from deduction_engine import calculate_deduction_from_event
-#from embedding_matcher import get_embedding
-#from deduction_engine import get_deduction
 from s3_handler import upload_to_s3
 from laytime_agent import extract_metadata_from_docs
 from laytime_agent import LaytimeCalculator
 from excel_exporter import generate_excel_from_extracted_data
 
-# from datetime import datetime
-
 from datetime import datetime, timedelta
+from dateutil import parser
+
 import re
 import pandas as pd
 
@@ -32,51 +30,7 @@ def extract_nor_delay_hours(clause_text: str) -> int:
     """
     pattern = r'(\d+)(?:\s*\([^)]*\))?\s*hours?\s+after'
     m = re.search(pattern, clause_text, re.IGNORECASE)
-    # print(f"m: {m}")
     return int(m.group(1)) if m else 0
-
-# def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
-#     """
-#     Given a DataFrame with columns [start_time,end_time,event_phase,reason],
-#     1) Parse the delay from the NOR clause,
-#     2) Build one synthetic NOR row for [tender → tender+delay],
-#     3) Clip any overlapping events to start at laytime_start,
-#     4) Filter out all original rows before laytime_start,
-#     5) Prepend the NOR row.
-#     """
-#     d = df.copy()
-#     # parse to datetimes
-#     d['start_time'] = pd.to_datetime(d['start_time'])
-#     d['end_time']   = pd.to_datetime(d['end_time'])
-#     d = d.sort_values('start_time').reset_index(drop=True)
-
-#     nor_tender = d.loc[0, 'start_time']
-#     # print(f"nor_tender: {nor_tender}")
-#     delay_h    = extract_nor_delay_hours(nor_clause_text)
-#     # print(f"Delay:{delay_h}")
-#     laytime_start = nor_tender + timedelta(hours=delay_h)
-
-#     # synthetic NOR row
-#     nor_row = {
-#         'start_time': nor_tender,
-#         'end_time':   laytime_start,
-#         'event_phase':'NOR',
-#         'reason':     f'Notice of Readiness period ({delay_h} h)'
-#     }
-
-#     # clip overlapping
-#     mask = (d['start_time'] < laytime_start) & (d['end_time'] > laytime_start)
-#     d.loc[mask, 'start_time'] = laytime_start
-
-#     # keep only rows starting at/after laytime_start
-#     d_after = d[d['start_time'] >= laytime_start].reset_index(drop=True)
-
-#     # combine
-#     out = pd.concat([pd.DataFrame([nor_row]), d_after], ignore_index=True)
-#     # back to string for display
-#     out['start_time'] = out['start_time'].dt.strftime("%Y-%m-%d %H:%M")
-#     out['end_time']   = out['end_time'].dt.strftime("%Y-%m-%d %H:%M")
-#     return out
 
 def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
     d = df.copy()
@@ -84,30 +38,60 @@ def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
     d['end_time']   = pd.to_datetime(d['end_time'])
     d = d.sort_values('start_time').reset_index(drop=True)
 
-    nor_tender   = d.loc[0, 'start_time']
+    if 'event_phase' in d.columns:
+        mask_nor = (
+            d['event_phase']
+             .str
+             .contains(r'\bNOR tendered\b|\bNotice of Readiness tendered\b', 
+                       case=False, na=False)
+        )
+    else:
+        mask_nor = (
+            d['reason']
+             .str
+             .contains(r'\bNOR tendered\b|\bNotice of Readiness tendered\b', 
+                       case=False, na=False)
+        )
+
+    if mask_nor.any():
+        nor_tender = d.loc[mask_nor, 'start_time'].min()
+    else:
+        # fallback to first timestamp if no explicit NOR found
+        nor_tender = d.loc[0, 'start_time']
+
     delay_h      = extract_nor_delay_hours(nor_clause_text)
     default_cut  = nor_tender + timedelta(hours=delay_h)
 
     # —— new: see if any "Commenced Discharging" happens earlier
-    mask_commence = (
-        d['event_phase']
-         .str
-         .contains('commenced discharging', case=False, na=False)
-    )
+    if "event_phase" in d.columns:
+        mask_commence = (
+            d['event_phase']
+            .str
+            .contains('commenced discharging', case=False, na=False)
+        )
+    else:
+    # no event_phase column → look in 'reason' instead
+        mask_commence = (
+            d["reason"]
+            .str
+            .contains("commenced discharging", case=False, na=False)
+        )
     if mask_commence.any():
         first_commence = d.loc[mask_commence, 'start_time'].min()
         # pick the earlier of (NOR+delay) vs first commencement
         laytime_start = min(default_cut, first_commence)
     else:
         laytime_start = default_cut
-
+    
     # synthetic NOR row now spans from tender → actual laytime_start
     nor_row = {
         'start_time': nor_tender,
         'end_time':   laytime_start,
-        'event_phase':'NOR',
         'reason':     f'Notice of Readiness period ({delay_h} h)'
     }
+
+    if 'event_phase' in d.columns:
+        nor_row['event_phase'] = 'NOR'
 
     # clip any row that straddles the new laytime_start
     mask = (d['start_time'] < laytime_start) & (d['end_time'] > laytime_start)
@@ -123,18 +107,73 @@ def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
     return out
 
 def parse_working_hours(text):
-    mon_fri_match = re.search(r"from\s*(\d{2}:\d{2})\s*to\s*(\d{2}:\d{2})\s*Hours on Monday to Friday", text)
-    sat_match    = re.search(r"from\s*(\d{2}:\d{2})\s*to\s*(\d{2}:\d{2})\s*Hours on Saturdays?", text)
-    if mon_fri_match and sat_match:
-        return {
-            "mon_fri": (mon_fri_match.group(1), mon_fri_match.group(2)),
-            "sat":     (sat_match.group(1), sat_match.group(2))
-        }
+    """
+    Extract working hours for Mon-Fri and Sat from text strings like:
+    'Monday to Friday: 09:00 to 18:00' and 'Saturday: 09:00 to 13:00'.
+    Returns a dict with keys 'mon_fri' and/or 'sat' if found, else None.
+    """
+    mon_fri_pattern = re.compile(
+        r"(\')*(?:Monday|Mon)\s*(?:to|-|To)\s*(?:Friday|Fri)(\')*[:\s]*?(\')*(\d{2}:\d{2})\s*(?:to|-)\s*(\d{2}:\d{2})(\')*",
+        re.IGNORECASE
+    )
+    sat_pattern = re.compile(
+        r"(\')*(?:Saturday|Sat|saturday|sat)(\')*[:\s]*?(\')*(\d{2}:\d{2})\s*(?:to|-)\s*(\d{2}:\d{2})(\')*",
+        re.IGNORECASE
+    )
+    wh = {}
+    mf_match = mon_fri_pattern.search(text)
+    sat_match = sat_pattern.search(text)
+    if mf_match:
+        wh["mon_fri"] = (mf_match.group(1), mf_match.group(2))
+    if sat_match:
+        wh["sat"] = (sat_match.group(1), sat_match.group(2))
+    return wh if wh else None
+
+# # Helper to flatten nested dicts/lists into a list of strings
+def collect_strings(value):
+    if isinstance(value, str):
+        return [value]
+    elif isinstance(value, dict):
+        texts = []
+        for k, v in value.items():
+            texts.append(str(k))
+            texts.extend(collect_strings(v))
+        return texts
+    elif isinstance(value, list):
+        texts = []
+        for item in value:
+            texts.extend(collect_strings(item))
+        return texts
+    else:
+        return []
+
+# Generic function to find any nested time dict without relying on key name
+def find_time_dict(d):
+    if isinstance(d, dict):
+        # check if this dict contains time-like keys
+        for k in d.keys():
+            if re.search(r"(Monday to Friday|mon_fri|norHours|workingHours|Saturday)", k, re.IGNORECASE):
+                return d
+        for k,v in d.items():
+            if re.search(r"(Monday to Friday|mon_fri|norHours|workingHours|Saturday)", k, re.IGNORECASE):
+                return d
+        # recurse
+        for v in d.values():
+            found = find_time_dict(v)
+            if found:
+                st.markdown(f"dic found: {found}")
+                return found
+    elif isinstance(d, list):
+        for item in d:
+            found = find_time_dict(item)
+            if found:
+                st.markdown(f"list found: {found}")
+                return found
     return None
 
 # Function to get working hours for a given datetime
 def get_working_hours(dt):
-    default = {"mon_fri": ("09:00", "20:00"), "sat": ("09:00", "12:00")}
+    default = {"mon_fri": ("09:00", "17:00"), "sat": ("09:00", "13:00")}
     hours = st.session_state.get("working_hours", default)
     weekday = dt.weekday()
     if weekday < 5:
@@ -143,9 +182,34 @@ def get_working_hours(dt):
         start_str, end_str = hours["sat"]
     else:
         return None, None
+    
     start = datetime.combine(dt.date(), datetime.strptime(start_str, "%H:%M").time())
     end   = datetime.combine(dt.date(), datetime.strptime(end_str, "%H:%M").time())
     return start, end
+
+
+
+# # Formatter to create multi-line clause text entries
+# def format_value(value, indent=0):
+#     lines = []
+#     prefix = ' ' * indent
+#     if isinstance(value, dict):
+#         for k, v in value.items():
+#             if isinstance(v, (dict, list)):
+#                 lines.append(f"{prefix}{k}:")
+#                 lines.extend(format_value(v, indent + 2))
+#             else:
+#                 lines.append(f"{prefix}{k}: {v}")
+#     elif isinstance(value, list):
+#         for item in value:
+#             if isinstance(item, (dict, list)):
+#                 lines.append(f"{prefix}-")
+#                 lines.extend(format_value(item, indent + 2))
+#             else:
+#                 lines.append(f"{prefix}- {item}")
+#     else:
+#         lines.append(f"{prefix}{value}")
+#     return lines
 
 # Upload section
 st.header("Step 1: Upload Documents")
@@ -158,6 +222,7 @@ uploaded_files = st.file_uploader(
 if st.button("Extract and Analyze") and uploaded_files:
     uploaded_doc_types = []
     clause_texts = []
+    clause_texts1 = []
     remark_texts = []
     extracted_data = {}
     all_events = []
@@ -195,63 +260,119 @@ if st.button("Extract and Analyze") and uploaded_files:
 
         uploaded_doc_types.append(doc_type)
         extracted_data[doc_type] = structured_data
-        
 
         st.markdown(f"**doctype**: {doc_type}")
 
         if doc_type == "Contract":
-            for section in structured_data.get("Sections", []):
-                # parse working hours from section title and content
-                for key in ("Section Title", "Content"):
-                    text = section.get(key, "")
-                    wh = parse_working_hours(text)
-                    if wh:
-                        st.session_state["working_hours"] = wh
 
-                # clauses
-                #  - Items: dicts like {"Product": "Wheat"}
-                #  - Subsections: dicts with "Subsection Title" & "Content"
-                # We treat them separately to avoid empty titles.
-                # 1) Items
-                if "Items" in section:
-                    for item in section["Items"]:
-                        if isinstance(item, dict):
-                            for k, v in item.items():
-                                clause_texts.append(f"{k}: {v}")
+            raw_secs = (
+                structured_data.get("Sections")
+                or structured_data.get("sections")
+                or structured_data.get("Agreement", {}).get("sections", [])
+            )
+            
+            default_wh_text = "Monday to Friday: 09:00 to 17:00; Saturday: 09:00 to 13:00"
+            default_wh = parse_working_hours(default_wh_text)
+            work_hours = default_wh.copy() if default_wh else {"mon_fri": None, "sat": None}
+            found_mf = False
+            found_sat = False
 
-                # 2) Subsections
-                if "Subsections" in section:
-                    for elem in section["Subsections"]:
-                        if not isinstance(elem, dict):
-                            continue
-                        content = elem.get("Content", "").strip()
-                        title   = elem.get("Subsection Title", "").strip() or elem.get("Clause Title", "").strip()
+            working_hour = structured_data.get("working_hours")
+            time_dict = find_time_dict(working_hour)
+            if time_dict:
+                # parse all entries in that dict
+                for k, v in time_dict.items():
+                    if isinstance(v, str):
+                        times = re.findall(r"(\d{2}:\d{2})", v)
+                        if len(times) == 2:
+                            if re.search(r"(Monday to Friday|mon_fri)", k, re.IGNORECASE):
+                                work_hours["mon_fri"] = (times[0], times[1])
+                                found_mf = True
+                            elif re.search(r"(saturday|sat)", k, re.IGNORECASE):
+                                work_hours["sat"] = (times[0], times[1])
+                                found_sat = True
+            if isinstance(raw_secs, dict):
+                sections = [
+                    {"heading": sec_title, "body": sec_body}
+                    for sec_title, sec_body in raw_secs.items()
+                ]
+            else:
+                sections = raw_secs
 
-                        # parse working hours if mentioned here too
-                        wh = parse_working_hours(content)
-                        if wh:
-                            st.session_state["working_hours"] = wh
 
-                        # only append non-empty entries
-                        if title or content:
-                            clause_texts.append(f"{title}: {content}")
+            for section in sections:
 
-            st.markdown(f"**Clause_texts**: {clause_texts}")
-        
+                heading = section.get("heading", "")
+                body    = section.get("body", {})
+
+                all_texts = [heading] + collect_strings(body)
+                clause_texts1.extend(all_texts)
+
+                norm_heading = re.sub(r'[^a-zA-Z0-9]+', '_', heading.lower()).strip('_')
+
+                if isinstance(body, dict):
+                    for key, val in body.items():
+                        # normalize sub-key
+                        entry_key = re.sub(r'[^a-zA-Z0-9]+', '_', key.lower()).strip('_')
+                        
+                        # append each subclause as a separate dict-string
+                        if isinstance(val, dict):
+                            clause_texts.append(f"{entry_key}: {val}")
+                        elif isinstance(val, list):
+                            for item in val:
+                                clause_texts.append(f"{entry_key}: {item}")
+                        else:
+                            clause_texts.append(f"{entry_key}: {val}")
+                elif isinstance(body, list):
+                    # body is a list of items
+                    for idx, item in enumerate(body, start=1):
+                        entry_key = f"{idx}"
+                        clause_texts.append(f"{entry_key}: {item}")
+                else:
+                    # single non-dict, non-list value
+                    clause_texts.append(f"{norm_heading}: {body}")
+
+            st.session_state["working_hours"] = work_hours
+            
         # SoF and others: collect chronological events
         else:
             events = structured_data.get("Chronological Events", [])
             for e in events:
-                try:
-                    ts = datetime.strptime(e.get("Date & Time"), "%Y-%m-%d %H:%M")
-                    all_events.append({
-                        "timestamp": ts,
-                        "event": e.get("Event"),
-                        "remarks": e.get("Remarks")
-                    })
-                except:
+                if e.get("Date & Time"):
+                    try:
+                        ts = datetime.strptime(e.get("Date & Time"), "%Y-%m-%d %H:%M")
+                        all_events.append({
+                            "timestamp": ts,
+                            "event": e.get("Event"),
+                            "remarks": e.get("Remarks")
+                        })
+                    except:
+                        continue
+
+                # Case 2: split fields (date, day, start_time, end_time)
+                elif e.get("Date") or e.get("date"):
+                    date_val   = e.get("Date") or e.get("date")
+                    day_val    = e.get("Day")  or e.get("day")
+                    start_val  = e.get("start_time") or e.get("Start_Time")
+                    end_val    = e.get("end_time")   or e.get("End_Time")
+                    remarks_val= e.get("Remarks")    or e.get("remarks")
+
+                    ev = {
+                        "date":       date_val,
+                        "day":        day_val,
+                        "start_time": start_val,
+                        "end_time":   end_val,
+                        "remarks":    remarks_val
+                    }
+
+                else:
+                    # neither format recognized
                     continue
-            st.markdown(f"**All events**: {all_events}")
+
+                all_events.append(ev)
+                
+            if any("timestamp" in ev for ev in all_events):
+                all_events.sort(key=lambda x: x["timestamp"])
 
 
         # Upload structured result to S3
@@ -271,26 +392,81 @@ if st.button("Extract and Analyze") and uploaded_files:
 
         def build_event_blocks(events):
             blocks = []
-            for a, b in zip(events, events[1:]):
-                start, end = a["timestamp"], b["timestamp"]
-                label, reason = a["event"], a["remarks"]
-                curr = start
-                while curr < end:
+            ranges = []
+            # 1) Turn each raw event into a (start, end, label, reason) tuple
+            for idx, e in enumerate(events):
+                # Case A: split-fields event
+                if e.get("date") and e.get("start_time"):
+                    # parse with dayfirst=True for “DD/MM/YYYY”
+                    end_dt = None
+                    date_str = e["date"]
+                    day_str  = e.get("day", "")
+                    start_dt = parser.parse(f"{date_str} {e['start_time']}", dayfirst=True)
+                    if e.get("end_time"):
+                        end_dt = parser.parse(f"{date_str} {e['end_time']}", dayfirst=True)
+                    label  = e.get("Event", "")
+                    reason = e.get("Remarks") or e.get("remarks") or ""
+                    ranges.append((date_str, day_str, start_dt, end_dt, label, reason))
+
+                # Case B: timestamped events to be paired
+                elif e.get("timestamp") and idx + 1 < len(events) and events[idx+1].get("timestamp"):
+                    start_dt = e["timestamp"]
+                    end_dt   = events[idx+1]["timestamp"]
+                    label    = e.get("event", "")
+                    reason   = e.get("remarks", "")
+                    ranges.append(("", "", start_dt, end_dt, label, reason))
+
+            # 2) For each (start, end), slice into working-hour blocks
+            for date_str, day_str, start_dt, end_dt, label, reason in ranges:
+                if end_dt is None:
+                    blk = {
+                        "date":        date_str,
+                        "day":         day_str,
+                        "start_time":  start_dt.strftime("%Y-%m-%d %H:%M"),
+                        "end_time":    None,
+                        "reason":      reason
+                    }
+                    if label:
+                        blk["event_phase"] = label
+                    blocks.append(blk)
+                    continue
+
+                curr = start_dt
+                while curr < end_dt:
                     ws, we = get_working_hours(curr)
                     if ws and we:
                         seg_start = max(curr, ws)
-                        seg_end   = min(end, we)
+                        seg_end   = min(end_dt, we)
                         if seg_start < seg_end:
-                            blocks.append({
+                            blk = {
+                                "date" : date_str,
+                                "day" : day_str,
                                 "start_time": seg_start.strftime("%Y-%m-%d %H:%M"),
                                 "end_time":   seg_end.strftime("%Y-%m-%d %H:%M"),
-                                "event_phase": label,
-                                "reason":      reason
-                            })
+                                "reason":     reason
+                            }
+                            if label:
+                                blk["event_phase"] = label
+                            blocks.append(blk)
+                    else:
+                        blk = {
+                                "date" : date_str,
+                                "day" : day_str,
+                                "start_time": curr.strftime("%Y-%m-%d %H:%M"),
+                                "end_time":   end_dt.strftime("%Y-%m-%d %H:%M"),
+                                "reason":     reason
+                            }
+                        if label:
+                            blk["event_phase"] = label
+                        blocks.append(blk)
+                    # bump to next calendar day midnight
                     curr = (curr + timedelta(days=1)).replace(hour=0, minute=0)
+
             return blocks
 
+        # …later…
         blocks = build_event_blocks(all_events)
+
         if blocks:
             st.dataframe(pd.DataFrame(blocks))
 
@@ -299,13 +475,11 @@ if st.button("Extract and Analyze") and uploaded_files:
         st.header("⏱ Insert NOR Period & Clip Logs")
         # grab the NOR clause content from your flat clause_texts
         nor_clause_text = ""
-        for ct in clause_texts:
-            # print(f"clause_text: {ct}")
+        for ct in clause_texts1:
             lower = ct.lower()
-            if "notice of readiness" in lower or "nor" in lower:
+            if ("notice of readiness" in lower or "nor" in lower) and "laytime" in lower:
                 nor_clause_text = ct.split(":",1)[1].strip() if ":" in ct else ct
                 break
-        # print(f"nor_clause : {nor_clause_text}")
 
         nor_df = split_nor_period(pd.DataFrame(blocks), nor_clause_text)
         st.dataframe(nor_df)
@@ -313,15 +487,15 @@ if st.button("Extract and Analyze") and uploaded_files:
         # Step 3: Clause–Remark Matching
         st.header("Step 3: Clause–Remark Matching")
         records = nor_df.to_dict("records")
-        remark_texts = [b["reason"] or b["event_phase"] for b in records]
+        remark_texts = [b["reason"] or b["event_phase"] for b in records[1:]]
         pairs = []
 
         if clause_texts and remark_texts:
             pairs = match_clause_remark_pairs(
                 clause_texts,
-                remark_texts,
-                top_k=3,  # fallback to hybrid scoring
+                remark_texts
             )
+            st.markdown(f"pairs: {pairs}")
 
             # Print all matches
             for p in pairs:
@@ -331,110 +505,110 @@ if st.button("Extract and Analyze") and uploaded_files:
                 st.divider()
 
   
-        # Step 4: Deduction Engine (Gemini-powered)
-        st.header("Step 4: Laytime Deductions (via Gemini)")
+        # # Step 4: Deduction Engine (Gemini-powered)
+        # st.header("Step 4: Laytime Deductions (via Gemini)")
 
-        deductions = []
+        # deductions = []
 
-        for p in pairs:
-            clause = p["clause"]
-            remark = p["remark"]
+        # for p in pairs:
+        #     clause = p["clause"]
+        #     remark = p["remark"]
 
-            # Find block loosely matching this remark
-            match = next((b for b in records if remark in (b["reason"] or "") or remark in (b["event_phase"] or "")), None)
-            if not match:
-                continue
+        #     # Find block loosely matching this remark
+        #     match = next((b for b in records if remark in (b["reason"] or "") or remark in (b["event_phase"] or "")), None)
+        #     if not match:
+        #         continue
 
-            event_obj = {
-                "reason": match.get("reason") or match.get("event_phase") or "No reason provided",
-                "start_time": match["start_time"],
-                "end_time": match["end_time"]
-                }
+        #     event_obj = {
+        #         "reason": match.get("reason") or match.get("event_phase") or "No reason provided",
+        #         "start_time": match["start_time"],
+        #         "end_time": match["end_time"]
+        #         }
 
-            deduction = calculate_deduction_from_event(clause, event_obj)
+        #     deduction = calculate_deduction_from_event(clause, event_obj)
 
-                # Add metadata for display
-            deduction.update({
-                "clause": clause,
-                "event": match.get("event_phase"),
-                "remarks": match.get("reason")
-                })
+        #         # Add metadata for display
+        #     deduction.update({
+        #         "clause": clause,
+        #         "event": match.get("event_phase"),
+        #         "remarks": match.get("reason")
+        #         })
 
-            deductions.append(deduction)
+        #     deductions.append(deduction)
 
-        # ✅ Display deductions
-        st.subheader("🔎 Final Deductions")
+        # # ✅ Display deductions
+        # st.subheader("🔎 Final Deductions")
 
-        if not deductions:
-            st.warning("⚠️ No deductions were made.")
-        else:
-            for i, d in enumerate(deductions):
-               with st.expander(f"Clause: {(d.get('clause') or '')[:60]}... | Event: {(d.get('event') or '')[:30]}"):
-                    st.markdown(f"**Event:** {d['event']}")
-                    st.text_area(
-                        "Remarks", 
-                        d["remarks"], 
-                        height=80, 
-                        key=f"remarks_{i}"
-                    )
-                    st.markdown(f"**Deduction Reason:** {d['reason']}")
-                    st.markdown(f"**From:** {d['deducted_from']}")
-                    st.markdown(f"**To:** {d['deducted_to']}")
-                    st.markdown(f"**Hours Deducted:** `{d['total_hours']}`")
+        # if not deductions:
+        #     st.warning("⚠️ No deductions were made.")
+        # else:
+        #     for i, d in enumerate(deductions):
+        #        with st.expander(f"Clause: {(d.get('clause') or '')[:60]}... | Event: {(d.get('event') or '')[:30]}"):
+        #             st.markdown(f"**Event:** {d['event']}")
+        #             st.text_area(
+        #                 "Remarks", 
+        #                 d["remarks"], 
+        #                 height=80, 
+        #                 key=f"remarks_{i}"
+        #             )
+        #             st.markdown(f"**Deduction Reason:** {d['reason']}")
+        #             st.markdown(f"**From:** {d['deducted_from']}")
+        #             st.markdown(f"**To:** {d['deducted_to']}")
+        #             st.markdown(f"**Hours Deducted:** `{d['total_hours']}`")
 
 
 
-            upload_to_s3(
-                json.dumps(deductions, indent=2),
-                f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            )
-            st.success("✅ Deductions saved to S3.")
+        #     upload_to_s3(
+        #         json.dumps(deductions, indent=2),
+        #         f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        #     )
+        #     st.success("✅ Deductions saved to S3.")
 
-        # Step 5: Final Laytime Summary
-        if records and deductions:
-            calc = LaytimeCalculator(records, deductions)
-            total = calc.total_block_hours()
-            deduc = calc.total_deduction_hours()
-            net   = calc.net_laytime_hours()
+        # # Step 5: Final Laytime Summary
+        # if records and deductions:
+        #     calc = LaytimeCalculator(records, deductions)
+        #     total = calc.total_block_hours()
+        #     deduc = calc.total_deduction_hours()
+        #     net   = calc.net_laytime_hours()
 
-            st.header("🧮 Laytime Calculation Summary")
-            st.markdown(f"- **Total Working-Hour Blocks:** {total:.2f} hrs")
-            st.markdown(f"- **Total Deductions:**          {deduc:.2f} hrs")
-            st.markdown(f"- **Net Laytime Used:**         {net:.2f} hrs")
+        #     st.header("🧮 Laytime Calculation Summary")
+        #     st.markdown(f"- **Total Working-Hour Blocks:** {total:.2f} hrs")
+        #     st.markdown(f"- **Total Deductions:**          {deduc:.2f} hrs")
+        #     st.markdown(f"- **Net Laytime Used:**         {net:.2f} hrs")
 
-        # Final block: generate Excel if both Contract and SoF were extracted
-        if "Contract" in extracted_data and "SoF" in extracted_data:
-            contract_raw = extracted_data["Contract"]
-            sof_raw = extracted_data["SoF"]
+        # # Final block: generate Excel if both Contract and SoF were extracted
+        # if "Contract" in extracted_data and "SoF" in extracted_data:
+        #     contract_raw = extracted_data["Contract"]
+        #     sof_raw = extracted_data["SoF"]
 
-            # 🔄 Extract structured metadata + events using Gemini
-            metadata_response, raw_response = extract_metadata_from_docs(contract_raw, sof_raw)
+        #     # 🔄 Extract structured metadata + events using Gemini
+        #     metadata_response, raw_response = extract_metadata_from_docs(contract_raw, sof_raw)
 
-            # 🧾 Display keys (optional)
-            st.subheader("✅ Populating Excel with extracted metadata + events")
-            st.markdown("### 🔑 Contract Keys")
-            st.json(list(contract_raw.keys()))
-            st.markdown("### 🔑 SoF Keys")
-            st.json(list(sof_raw.keys()))
+        #     # 🧾 Display keys (optional)
+        #     st.subheader("✅ Populating Excel with extracted metadata + events")
+        #     st.markdown("### 🔑 Contract Keys")
+        #     st.json(list(contract_raw.keys()))
+        #     st.markdown("### 🔑 SoF Keys")
+        #     st.json(list(sof_raw.keys()))
 
-            st.markdown("### 🧾 Metadata Preview")
-            st.json(metadata_response)
+        #     st.markdown("### 🧾 Metadata Preview")
+        #     st.json(metadata_response)
 
-            # ✅ Build Excel workbook using new format
-            excel_wb = generate_excel_from_extracted_data(metadata_response)
-            excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        #     # ✅ Build Excel workbook using new format
+        #     excel_wb = generate_excel_from_extracted_data(metadata_response)
+        #     excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
-            # ✅ Save Excel to temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_xlsx:
-                excel_wb.save(tmp_xlsx.name)
-                tmp_xlsx.seek(0)
-                with open(tmp_xlsx.name, "rb") as f:
-                    st.download_button(
-                        label="📥 Download Laytime Metadata Report",
-                        data=f.read(),
-                        file_name=excel_filename,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+        #     # ✅ Save Excel to temp file
+        #     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_xlsx:
+        #         excel_wb.save(tmp_xlsx.name)
+        #         tmp_xlsx.seek(0)
+        #         with open(tmp_xlsx.name, "rb") as f:
+        #             st.download_button(
+        #                 label="📥 Download Laytime Metadata Report",
+        #                 data=f.read(),
+        #                 file_name=excel_filename,
+        #                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        #             )
 
 
 else:
