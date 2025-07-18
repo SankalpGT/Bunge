@@ -90,12 +90,6 @@ def match_clause_remark_pairs(clauses, remarks):
             )
             arrow_table = search_builder.to_arrow()
             hits = arrow_table.to_pandas()
-        print(f"Hits: {hits}")
-
-        # for _, hit in hits.iterrows():
-        #     # Only consider remark rows
-        #     if hit["type"] != "clause":
-        #         continue
 
         clause_hits = hits[hits["type"] == "clause"]
         if clause_hits.empty:

@@ -161,13 +161,11 @@ def find_time_dict(d):
         for v in d.values():
             found = find_time_dict(v)
             if found:
-                st.markdown(f"dic found: {found}")
                 return found
     elif isinstance(d, list):
         for item in d:
             found = find_time_dict(item)
             if found:
-                st.markdown(f"list found: {found}")
                 return found
     return None
 
@@ -186,30 +184,6 @@ def get_working_hours(dt):
     start = datetime.combine(dt.date(), datetime.strptime(start_str, "%H:%M").time())
     end   = datetime.combine(dt.date(), datetime.strptime(end_str, "%H:%M").time())
     return start, end
-
-
-
-# # Formatter to create multi-line clause text entries
-# def format_value(value, indent=0):
-#     lines = []
-#     prefix = ' ' * indent
-#     if isinstance(value, dict):
-#         for k, v in value.items():
-#             if isinstance(v, (dict, list)):
-#                 lines.append(f"{prefix}{k}:")
-#                 lines.extend(format_value(v, indent + 2))
-#             else:
-#                 lines.append(f"{prefix}{k}: {v}")
-#     elif isinstance(value, list):
-#         for item in value:
-#             if isinstance(item, (dict, list)):
-#                 lines.append(f"{prefix}-")
-#                 lines.extend(format_value(item, indent + 2))
-#             else:
-#                 lines.append(f"{prefix}- {item}")
-#     else:
-#         lines.append(f"{prefix}{value}")
-#     return lines
 
 # Upload section
 st.header("Step 1: Upload Documents")
@@ -262,15 +236,8 @@ if st.button("Extract and Analyze") and uploaded_files:
         extracted_data[doc_type] = structured_data
 
         st.markdown(f"**doctype**: {doc_type}")
+        if str(doc_type).strip().lower() == "contract":
 
-        if doc_type == "Contract":
-
-            raw_secs = (
-                structured_data.get("Sections")
-                or structured_data.get("sections")
-                or structured_data.get("Agreement", {}).get("sections", [])
-            )
-            
             default_wh_text = "Monday to Friday: 09:00 to 17:00; Saturday: 09:00 to 13:00"
             default_wh = parse_working_hours(default_wh_text)
             work_hours = default_wh.copy() if default_wh else {"mon_fri": None, "sat": None}
@@ -291,19 +258,24 @@ if st.button("Extract and Analyze") and uploaded_files:
                             elif re.search(r"(saturday|sat)", k, re.IGNORECASE):
                                 work_hours["sat"] = (times[0], times[1])
                                 found_sat = True
+
+            raw_secs = (
+                structured_data.get("Sections")
+                or structured_data.get("sections")
+                or structured_data.get("Agreement", {}).get("sections", [])
+            )
+
             if isinstance(raw_secs, dict):
                 sections = [
-                    {"heading": sec_title, "body": sec_body}
-                    for sec_title, sec_body in raw_secs.items()
+                    {"heading": sec_title, "body": sec_body} for sec_title, sec_body in raw_secs.items()
                 ]
             else:
                 sections = raw_secs
 
-
             for section in sections:
 
-                heading = section.get("heading", "")
-                body    = section.get("body", {})
+                heading = section.get("heading", "") or section.get("title", "")
+                body    = section.get("body", {}) or section.get("content", "")
 
                 all_texts = [heading] + collect_strings(body)
                 clause_texts1.extend(all_texts)
@@ -331,7 +303,7 @@ if st.button("Extract and Analyze") and uploaded_files:
                 else:
                     # single non-dict, non-list value
                     clause_texts.append(f"{norm_heading}: {body}")
-
+            
             st.session_state["working_hours"] = work_hours
             
         # SoF and others: collect chronological events
@@ -495,7 +467,6 @@ if st.button("Extract and Analyze") and uploaded_files:
                 clause_texts,
                 remark_texts
             )
-            st.markdown(f"pairs: {pairs}")
 
             # Print all matches
             for p in pairs:
@@ -506,110 +477,123 @@ if st.button("Extract and Analyze") and uploaded_files:
 
   
         # # Step 4: Deduction Engine (Gemini-powered)
-        # st.header("Step 4: Laytime Deductions (via Gemini)")
+        st.header("Step 4: Laytime Deductions (via Gemini)")
 
-        # deductions = []
+        deductions = []
 
-        # for p in pairs:
-        #     clause = p["clause"]
-        #     remark = p["remark"]
+        for p in pairs:
+            clause = p["clause"]
+            remark = p["remark"]
 
-        #     # Find block loosely matching this remark
-        #     match = next((b for b in records if remark in (b["reason"] or "") or remark in (b["event_phase"] or "")), None)
-        #     if not match:
-        #         continue
+            # Find block loosely matching this remark
+            match = next(
+                (
+                    b for b in records
+                    if remark in (b.get("reason") or "")
+                    or remark in (b.get("event_phase") or "")
+                ),
+                None,
+            )
+            if not match:
+                continue
 
-        #     event_obj = {
-        #         "reason": match.get("reason") or match.get("event_phase") or "No reason provided",
-        #         "start_time": match["start_time"],
-        #         "end_time": match["end_time"]
-        #         }
+            event_obj = {
+                "reason": match.get("reason") or match.get("event_phase") or "No reason provided",
+                "start_time": match["start_time"],
+                "end_time": match["end_time"]
+                }
 
-        #     deduction = calculate_deduction_from_event(clause, event_obj)
+            deduction = calculate_deduction_from_event(clause, event_obj)
 
-        #         # Add metadata for display
-        #     deduction.update({
-        #         "clause": clause,
-        #         "event": match.get("event_phase"),
-        #         "remarks": match.get("reason")
-        #         })
+                # Add metadata for display
+            metadata = {
+                "clause": clause,
+                "remarks": match.get("reason") or "",
+            }
+            if match.get("event_phase"):
+                metadata["event"] = match["event_phase"]
 
-        #     deductions.append(deduction)
+            deduction.update(metadata)
+            deductions.append(deduction)
 
-        # # ✅ Display deductions
-        # st.subheader("🔎 Final Deductions")
+        # ✅ Display deductions
+        st.subheader("🔎 Final Deductions")
 
-        # if not deductions:
-        #     st.warning("⚠️ No deductions were made.")
-        # else:
-        #     for i, d in enumerate(deductions):
-        #        with st.expander(f"Clause: {(d.get('clause') or '')[:60]}... | Event: {(d.get('event') or '')[:30]}"):
-        #             st.markdown(f"**Event:** {d['event']}")
-        #             st.text_area(
-        #                 "Remarks", 
-        #                 d["remarks"], 
-        #                 height=80, 
-        #                 key=f"remarks_{i}"
-        #             )
-        #             st.markdown(f"**Deduction Reason:** {d['reason']}")
-        #             st.markdown(f"**From:** {d['deducted_from']}")
-        #             st.markdown(f"**To:** {d['deducted_to']}")
-        #             st.markdown(f"**Hours Deducted:** `{d['total_hours']}`")
+        if not deductions:
+            st.warning("⚠️ No deductions were made.")
+        else:
+            for i, d in enumerate(deductions):
+                title = f"Clause: {(d.get('clause') or '')[:60]}..."
+                if d.get("event"):
+                    title += f" | Event: {d['event'][:30]}"
+                
+                with st.expander(title):
+                    # Only render Event if present
+                    if d.get("event"):
+                        st.markdown(f"**Event:** {d['event']}")
+                    
+                    st.text_area(
+                        "Remarks",
+                        d.get("remarks", ""),
+                        height=80,
+                        key=f"remarks_{i}"
+                    )
+                    st.markdown(f"**Deduction Reason:** {d['reason']}")
+                    st.markdown(f"**From:** {d['deducted_from']}")
+                    st.markdown(f"**To:** {d['deducted_to']}")
+                    st.markdown(f"**Hours Deducted:** `{d['total_hours']}`")
 
+            upload_to_s3(
+                json.dumps(deductions, indent=2),
+                f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
+            st.success("✅ Deductions saved to S3.")
 
+        # Step 5: Final Laytime Summary
+        if records and deductions:
+            calc = LaytimeCalculator(records, deductions)
+            total = calc.total_block_hours()
+            deduc = calc.total_deduction_hours()
+            net   = calc.net_laytime_hours()
 
-        #     upload_to_s3(
-        #         json.dumps(deductions, indent=2),
-        #         f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        #     )
-        #     st.success("✅ Deductions saved to S3.")
+            st.header("🧮 Laytime Calculation Summary")
+            st.markdown(f"- **Total Working-Hour Blocks:** {total:.2f} hrs")
+            st.markdown(f"- **Total Deductions:**          {deduc:.2f} hrs")
+            st.markdown(f"- **Net Laytime Used:**         {net:.2f} hrs")
 
-        # # Step 5: Final Laytime Summary
-        # if records and deductions:
-        #     calc = LaytimeCalculator(records, deductions)
-        #     total = calc.total_block_hours()
-        #     deduc = calc.total_deduction_hours()
-        #     net   = calc.net_laytime_hours()
+        # Final block: generate Excel if both Contract and SoF were extracted
+        if "Contract" in extracted_data and "SoF" in extracted_data:
+            contract_raw = extracted_data["Contract"]
+            sof_raw = extracted_data["SoF"]
 
-        #     st.header("🧮 Laytime Calculation Summary")
-        #     st.markdown(f"- **Total Working-Hour Blocks:** {total:.2f} hrs")
-        #     st.markdown(f"- **Total Deductions:**          {deduc:.2f} hrs")
-        #     st.markdown(f"- **Net Laytime Used:**         {net:.2f} hrs")
+            # 🔄 Extract structured metadata + events using Gemini
+            metadata_response, raw_response = extract_metadata_from_docs(contract_raw, sof_raw)
 
-        # # Final block: generate Excel if both Contract and SoF were extracted
-        # if "Contract" in extracted_data and "SoF" in extracted_data:
-        #     contract_raw = extracted_data["Contract"]
-        #     sof_raw = extracted_data["SoF"]
+            # 🧾 Display keys (optional)
+            st.subheader("✅ Populating Excel with extracted metadata + events")
+            st.markdown("### 🔑 Contract Keys")
+            st.json(list(contract_raw.keys()))
+            st.markdown("### 🔑 SoF Keys")
+            st.json(list(sof_raw.keys()))
 
-        #     # 🔄 Extract structured metadata + events using Gemini
-        #     metadata_response, raw_response = extract_metadata_from_docs(contract_raw, sof_raw)
+            st.markdown("### 🧾 Metadata Preview")
+            st.json(metadata_response)
 
-        #     # 🧾 Display keys (optional)
-        #     st.subheader("✅ Populating Excel with extracted metadata + events")
-        #     st.markdown("### 🔑 Contract Keys")
-        #     st.json(list(contract_raw.keys()))
-        #     st.markdown("### 🔑 SoF Keys")
-        #     st.json(list(sof_raw.keys()))
+            # ✅ Build Excel workbook using new format
+            excel_wb = generate_excel_from_extracted_data(metadata_response)
+            excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
-        #     st.markdown("### 🧾 Metadata Preview")
-        #     st.json(metadata_response)
-
-        #     # ✅ Build Excel workbook using new format
-        #     excel_wb = generate_excel_from_extracted_data(metadata_response)
-        #     excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-        #     # ✅ Save Excel to temp file
-        #     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_xlsx:
-        #         excel_wb.save(tmp_xlsx.name)
-        #         tmp_xlsx.seek(0)
-        #         with open(tmp_xlsx.name, "rb") as f:
-        #             st.download_button(
-        #                 label="📥 Download Laytime Metadata Report",
-        #                 data=f.read(),
-        #                 file_name=excel_filename,
-        #                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        #             )
-
+            # ✅ Save Excel to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_xlsx:
+                excel_wb.save(tmp_xlsx.name)
+                tmp_xlsx.seek(0)
+                with open(tmp_xlsx.name, "rb") as f:
+                    st.download_button(
+                        label="📥 Download Laytime Metadata Report",
+                        data=f.read(),
+                        file_name=excel_filename,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
 
 else:
     st.info("📎 Please upload required documents and click 'Extract and Analyze' to continue.")
