@@ -55,6 +55,8 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         3.  **Calculate Confidence:** Assign a confidence score between 0.0 (no match) and 1.0 (perfect match) for how well the chosen clause applies to the event.
         4.  **Decide on Deduction:** Based on the event and the matched clause, determine if this event caused a disruption that should be deducted from laytime.
         5.  **Calculate Duration:** Compute the total duration of the event in hours.
+        6.  **Keep "deduct: true" for Sundays specially if something like "Sundays are excluded, even if used" is mentioned in the clause.
+        7.  **Keep "deduct: true" for Notice of Readiness period.
 
         Return a **single, clean JSON object** in the following strict format. Do not include any other text or explanations outside the JSON block. Every remark should return corresponding clause and deduction block.
 

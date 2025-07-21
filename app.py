@@ -10,7 +10,7 @@ from laytime_agent import extract_metadata_from_docs
 from laytime_agent import LaytimeCalculator
 from excel_exporter import generate_excel_from_extracted_data
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from dateutil import parser
 
 import re
@@ -186,7 +186,7 @@ def get_working_hours(dt):
     return start, end
 
 # Upload section
-st.header("Step 1: Upload Documents")
+st.header("Upload Documents")
 uploaded_files = st.file_uploader(
     "Upload Contract, SoF (required) and optionally LoP, NOR, PumpingLog",
     accept_multiple_files=True,
@@ -237,7 +237,7 @@ if st.button("Extract and Analyze") and uploaded_files:
 
         st.markdown(f"**doctype**: {doc_type}")
         if str(doc_type).strip().lower() == "contract":
-
+            st.markdown(f"Struc : {structured_data}")
             default_wh_text = "Monday to Friday: 09:00 to 17:00; Saturday: 09:00 to 13:00"
             default_wh = parse_working_hours(default_wh_text)
             work_hours = default_wh.copy() if default_wh else {"mon_fri": None, "sat": None}
@@ -308,6 +308,7 @@ if st.button("Extract and Analyze") and uploaded_files:
             
         # SoF and others: collect chronological events
         else:
+            st.markdown(f"Struc : {structured_data}")
             events = structured_data.get("Chronological Events", [])
             for e in events:
                 if e.get("Date & Time"):
@@ -454,31 +455,71 @@ if st.button("Extract and Analyze") and uploaded_files:
                 break
 
         nor_df = split_nor_period(pd.DataFrame(blocks), nor_clause_text)
-        st.dataframe(nor_df)
 
-        # Step 3: Clause–Remark Matching
-        st.header("Step 3: Clause–Remark Matching")
-        records = nor_df.to_dict("records")
-        remark_texts = [b["reason"] or b["event_phase"] for b in records[1:]]
-        pairs = []
+        adjusted_nor_df = nor_df.copy()
 
-        if clause_texts and remark_texts:
-            pairs = match_clause_remark_pairs(
-                clause_texts,
-                remark_texts
+        # Ensure 'date' is a proper date (not datetime) for grouping
+        adjusted_nor_df['date'] = pd.to_datetime(adjusted_nor_df['date']).dt.date
+
+        # 1) NATIONAL HOLIDAYS
+        # Identify dates where reason mentions 'holiday'
+        holiday_dates = adjusted_nor_df[
+            adjusted_nor_df['reason'].str.contains('holiday', case=False, na=False)
+        ]['date'].unique()
+
+        # Build one full-day row per holiday date
+        holiday_rows = pd.DataFrame({
+            'date':    holiday_dates,
+            'day':     [pd.to_datetime(d).day_name() for d in holiday_dates],
+            'start_time': ['00:00'] * len(holiday_dates),
+            'end_time':   ['23:59'] * len(holiday_dates),
+            'reason': ['National Holiday'] * len(holiday_dates)
+        })
+
+        # 2) SUNDAYS
+        # Identify all Sundays in the data
+        sunday_mask = pd.to_datetime(adjusted_nor_df['date']).dt.dayofweek == 6  # Monday=0 … Sunday=6
+        sunday_dates = adjusted_nor_df[sunday_mask]['date'].unique()
+
+        # Build one full-day row per Sunday
+        sunday_rows = pd.DataFrame({
+            'date':    sunday_dates,
+            'day':     ['Sunday'] * len(sunday_dates),
+            'start_time': ['00:00'] * len(sunday_dates),
+            'end_time':   ['23:59'] * len(sunday_dates),
+            'reason': ['Sunday'] * len(sunday_dates)
+        })
+
+        # 3) FILTER OUT original holiday/Sunday events
+        filtered = adjusted_nor_df[
+            ~(
+                adjusted_nor_df['date'].isin(holiday_dates) |
+                pd.to_datetime(adjusted_nor_df['date']).dt.dayofweek.eq(6)
             )
+        ]
 
-            # Print all matches
-            for p in pairs:
-                st.markdown(f"**Clause:** {p['clause']}")
-                st.markdown(f"**Remark:** {p['remark']}")
-                st.markdown(f"• Score: `{p['score']}`")
-                st.divider()
+        # 4) CONCATENATE & SORT
+        adjusted_nor_df = pd.concat([filtered, holiday_rows, sunday_rows], ignore_index=True)
+        adjusted_nor_df = adjusted_nor_df.sort_values(['date', 'start_time']).reset_index(drop=True)
 
+        # 5) Reorder columns
+        cols = ['date', 'day', 'start_time', 'end_time', 'reason']
+        adjusted_nor_df = adjusted_nor_df[cols]
+
+        # 6) Move Notice of Readiness row(s) to the very top
+        nor_mask = adjusted_nor_df['reason'].str.contains('notice of readiness period', case=False, na=False)
+        nor_rows   = adjusted_nor_df[nor_mask]
+        other_rows = adjusted_nor_df[~nor_mask]
+
+        adjusted_nor_df = pd.concat([nor_rows, other_rows], ignore_index=True)
+
+        # 7) Display
+        st.dataframe(adjusted_nor_df)
   
         # # Step 4: Deduction Engine (Gemini-powered)
-        st.header("Step 4: Laytime Deductions (via Gemini)")
-
+        st.header("Laytime Deductions (via Gemini)")
+        
+        records = adjusted_nor_df.to_dict("records")
         deductions = []
         if 'clause_texts' in locals() and 'records' in locals() and clause_texts and records:
             st.info(f"Analyzing {len(records)} events against {len(clause_texts)} clauses...")
@@ -500,8 +541,6 @@ if st.button("Extract and Analyze") and uploaded_files:
 
                 # Append result for display and further calculation
                 deductions.append(deduction_result)
-            st.markdown("Deductions")
-            st.json(deductions, expanded=True, width="stretch")
 
             # ✅ Display deductions
             st.subheader("🔎 Final Deductions")

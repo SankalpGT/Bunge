@@ -147,19 +147,23 @@ class LaytimeCalculator:
 
     def total_block_hours(self) -> float:
         total = 0.0
-        for b in self.blocks:
-            try:
-                st = self._parse_dt(b["start_time"])
-                et = self._parse_dt(b["end_time"])
-            except (KeyError, ValueError, TypeError) as err:
-                # log or print(b) here if you need to debug
-                continue
-            total += (et - st).total_seconds() / 3600.0
-            print(f"total:{total}")
+        # for b in self.blocks:
+            # try:
+            #     st = self._parse_dt(b["start_time"])
+            #     et = self._parse_dt(b["end_time"])
+            # except (KeyError, ValueError, TypeError) as err:
+            #     continue
+            # total += (et - st).total_seconds() / 3600.0
+        try:
+            st = self._parse_dt(self.blocks[0]["start_time"])
+            et = self._parse_dt(self.blocks[-1]["end_time"])
+        except:
+            st = self._parse_dt(self.blocks[0]["start_time"])
+            et = self._parse_dt(self.blocks[-1]["start_time"])
+        total = (et - st).total_seconds() / 3600.0
         return total
 
     def total_deduction_hours(self) -> float:
-        print(f'sum:{sum(d.get("total_hours", 0.0) for d in self.deductions if d.get("deduct", False))}')
         return sum( 
             d.get("total_hours", 0.0)
             for d in self.deductions
@@ -167,7 +171,5 @@ class LaytimeCalculator:
         )
 
     def net_laytime_hours(self) -> float:
-        print(f"records:{self.blocks}")
-        print(f"deductions:{self.deductions}")
         return self.total_block_hours() - self.total_deduction_hours()
 
