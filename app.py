@@ -4,7 +4,7 @@ import json
 import tempfile
 from extractor import extract_with_gemini
 from embedding_matcher import match_clause_remark_pairs
-from deduction_engine import calculate_deduction_from_event
+from deduction_engine import analyze_event_against_clauses
 from s3_handler import upload_to_s3
 from laytime_agent import extract_metadata_from_docs
 from laytime_agent import LaytimeCalculator
@@ -197,7 +197,7 @@ if st.button("Extract and Analyze") and uploaded_files:
     uploaded_doc_types = []
     clause_texts = []
     clause_texts1 = []
-    remark_texts = []
+    #remark_texts = []
     extracted_data = {}
     all_events = []
     st.session_state.pop("working_hours", None)
@@ -480,74 +480,57 @@ if st.button("Extract and Analyze") and uploaded_files:
         st.header("Step 4: Laytime Deductions (via Gemini)")
 
         deductions = []
+        if 'clause_texts' in locals() and 'records' in locals() and clause_texts and records:
+            st.info(f"Analyzing {len(records)} events against {len(clause_texts)} clauses...")
 
-        for p in pairs:
-            clause = p["clause"]
-            remark = p["remark"]
-
-            # Find block loosely matching this remark
-            match = next(
-                (
-                    b for b in records
-                    if remark in (b.get("reason") or "")
-                    or remark in (b.get("event_phase") or "")
-                ),
-                None,
-            )
-            if not match:
-                continue
-
-            event_obj = {
-                "reason": match.get("reason") or match.get("event_phase") or "No reason provided",
-                "start_time": match["start_time"],
-                "end_time": match["end_time"]
+            for event_record in records:
+                # Prepare the event object for the deduction engine
+                event_obj = {
+                    "reason": event_record.get("reason") or event_record.get("event_phase") or "No reason provided",
+                    "start_time": event_record.get("start_time"),
+                    "end_time": event_record.get("end_time"),
                 }
 
-            deduction = calculate_deduction_from_event(clause, event_obj)
+                # Skip events without a clear reason or time range
+                if not event_obj["reason"] or not event_obj["start_time"] or not event_obj["end_time"]:
+                    continue
 
-                # Add metadata for display
-            metadata = {
-                "clause": clause,
-                "remarks": match.get("reason") or "",
-            }
-            if match.get("event_phase"):
-                metadata["event"] = match["event_phase"]
+                # Call the new deduction engine function
+                deduction_result = analyze_event_against_clauses(event_obj, clause_texts)
 
-            deduction.update(metadata)
-            deductions.append(deduction)
+                # Append result for display and further calculation
+                deductions.append(deduction_result)
+            st.markdown("Deductions")
+            st.json(deductions, expanded=True, width="stretch")
 
-        # ✅ Display deductions
-        st.subheader("🔎 Final Deductions")
+            # ✅ Display deductions
+            st.subheader("🔎 Final Deductions")
 
-        if not deductions:
-            st.warning("⚠️ No deductions were made.")
-        else:
-            for i, d in enumerate(deductions):
-                title = f"Clause: {(d.get('clause') or '')[:60]}..."
-                if d.get("event"):
-                    title += f" | Event: {d['event'][:30]}"
+            if not deductions:
+                st.warning("⚠️ No valid deductions could be analyzed.")
+            else:
+                for i, d in enumerate(deductions):
+                    is_deducted = d.get("deduct", False)
+                    confidence = d.get("confidence_score", 0.0)
+                    color = "green" if is_deducted else "orange"
                 
-                with st.expander(title):
-                    # Only render Event if present
-                    if d.get("event"):
-                        st.markdown(f"**Event:** {d['event']}")
-                    
-                    st.text_area(
-                        "Remarks",
-                        d.get("remarks", ""),
-                        height=80,
-                        key=f"remarks_{i}"
-                    )
-                    st.markdown(f"**Deduction Reason:** {d['reason']}")
-                    st.markdown(f"**From:** {d['deducted_from']}")
-                    st.markdown(f"**To:** {d['deducted_to']}")
-                    st.markdown(f"**Hours Deducted:** `{d['total_hours']}`")
+                    title = f"Event: {d.get('Remark', 'N/A')[:70]}..."
 
-            upload_to_s3(
-                json.dumps(deductions, indent=2),
-                f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            )
-            st.success("✅ Deductions saved to S3.")
+                    with st.expander(title):
+                        st.markdown(f"**Matched Clause:** {d.get('Clause', 'N/A')}")
+                        st.markdown(f"**Confidence Score:** `{confidence:.2f}`")
+                        st.markdown(f"**Deduct from Laytime:** :{color}[{'Yes' if is_deducted else 'No'}]")
+                        st.markdown(f"**Reason:** {d.get('reason', 'N/A')}")
+                        st.markdown(f"**From:** `{d.get('deducted_from', 'N/A')}` | **To:** `{d.get('deducted_to', 'N/A')}`")
+                        st.markdown(f"**Hours:** `{d.get('total_hours', 0.0)}`")
+
+                upload_to_s3(
+                    json.dumps(deductions, indent=2),
+                    f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                )
+                st.success("✅ Deductions saved to S3.")
+        else:
+            st.warning("⚠️ Cannot run deduction engine. Clause texts or event records are missing.")
 
         # Step 5: Final Laytime Summary
         if records and deductions:

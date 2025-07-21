@@ -155,15 +155,19 @@ class LaytimeCalculator:
                 # log or print(b) here if you need to debug
                 continue
             total += (et - st).total_seconds() / 3600.0
+            print(f"total:{total}")
         return total
 
     def total_deduction_hours(self) -> float:
-        return sum(
+        print(f'sum:{sum(d.get("total_hours", 0.0) for d in self.deductions if d.get("deduct", False))}')
+        return sum( 
             d.get("total_hours", 0.0)
             for d in self.deductions
             if d.get("deduct", False)
         )
 
     def net_laytime_hours(self) -> float:
+        print(f"records:{self.blocks}")
+        print(f"deductions:{self.deductions}")
         return self.total_block_hours() - self.total_deduction_hours()
 

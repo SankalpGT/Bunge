@@ -9,91 +9,93 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel("models/gemini-1.5-flash-latest")
 
 
-def extract_json(text):
-    """Extract and parse JSON from Gemini output, even if it's embedded in natural language."""
+def extract_json(text: str) -> dict:
+    """
+    Extracts and parses a JSON object from a string, which may contain other text.
+    """
     try:
-        match = re.search(r"\{[\s\S]*?\}", text)
+        # Use a regex to find the JSON block
+        match = re.search(r"\{[\s\S]*\}", text)
         if not match:
-            raise ValueError("No JSON object found in response")
+            raise ValueError("No JSON object found in the response text.")
         json_str = match.group(0)
         return json.loads(json_str)
-    except Exception as e:
-        print("❌ Failed to parse Gemini output as JSON:", e)
-        print("📄 Full Gemini response:")
-        print(text)
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"❌ Error parsing JSON from response: {e}")
+        print(f"📄 Full response text:\n{text}")
         return {
+            "error": f"Failed to parse JSON response: {e}",
             "deduct": False,
-            "reason": f"Gemini returned invalid response: {e}",
-            "deducted_from": None,
-            "deducted_to": None,
-            "total_hours": 0
+            "reason": "Invalid response format from the model."
         }
 
 
-def ask_gemini_if_deduct(clause: str, event: dict):
+def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
     """
-    Determines if laytime should be deducted for a given event based on a clause.
+    For a single event, this function asks the Gemini model to find the most relevant
+    clause, score the match, and determine if laytime should be deducted.
 
-    event: {
-      "reason": "Rain caused discharge to halt",
-      "start_time": "2025-07-03T10:00:00",
-      "end_time": "2025-07-03T14:00:00"
-    }
+    Args:
+        event (dict): An object with 'reason', 'start_time', and 'end_time'.
+        clause_texts (list[str]): A list of all clauses from the contract.
+
+    Returns:
+        dict: A JSON object with the analysis result.
     """
+    clauses_formatted = "\n".join([f"- {c}" for c in clause_texts])
+
     prompt = f"""
-You are a laytime calculation assistant.
+        You are an expert laytime calculation agent.
 
-You are given:
-- A clause from a charter party contract.
-- An event from the Statement of Facts (SoF), with start and end time, and a short description.
+        Your task is to analyze a single operational event from a Statement of Facts (SoF) against a list of clauses from a charter party contract.
 
-Your task:
-1. Determine if this event caused a **disruption** to operations (loading/discharging).
-2. Refer to the clause and decide if such a disruption should **deduct from laytime**.
-3. Return the result in **this strict JSON format**:
+        Follow these steps precisely:
+        1.  **Analyze the Event:** Review the event's description, start time, and end time.
+        2.  **Find the Best Match:** From the list of all available `Contract Clauses`, identify the single most relevant clause that applies to this event.
+        3.  **Calculate Confidence:** Assign a confidence score between 0.0 (no match) and 1.0 (perfect match) for how well the chosen clause applies to the event.
+        4.  **Decide on Deduction:** Based on the event and the matched clause, determine if this event caused a disruption that should be deducted from laytime.
+        5.  **Calculate Duration:** Compute the total duration of the event in hours.
 
-{{
-  "deduct": true or false,
-  "reason": "a short explanation (e.g. Discharging suspended due to heavy rain)",
-  "deducted_from": "YYYY-MM-DD HH:MM",
-  "deducted_to": "YYYY-MM-DD HH:MM",
-  "total_hours": (number of hours to deduct, float)
-}}
+        Return a **single, clean JSON object** in the following strict format. Do not include any other text or explanations outside the JSON block. Every remark should return corresponding clause and deduction block.
 
-Clause: {clause}
+        {{
+        "Remark": "{event.get('reason')}",
+        "Clause": "The full text of the best matching clause you identified",
+        "confidence_score": <float, e.g., 0.85>,
+        "deduct": <true or false>,
+        "reason": "A short explanation for your deduction decision (e.g., 'Suspension of pumping due to rain as per weather clause')",
+        "deducted_from": "{event.get('start_time')}",
+        "deducted_to": "{event.get('end_time')}",
+        "total_hours": <float, formatted to 4 decimal places>
+        }}
 
-Event:
-- Description: {event['reason']}
-- Start Time: {event['start_time']}
-- End Time: {event['end_time']}
-"""
+        ---
+        **Event Details:**
+        - **Description:** {event.get('reason')}
+        - **Start Time:** {event.get('start_time')}
+        - **End Time:** {event.get('end_time')}
+
+        ---
+        **Contract Clauses (Find the best match from this list):**
+        {clauses_formatted}
+        ---
+        """
 
     try:
         response = model.generate_content(prompt)
-        return extract_json(response.text)  
+        return extract_json(response.text)
     except Exception as e:
+        print(f"❌ Gemini API call failed: {e}")
         return {
+            "Remark": event.get('reason'),
+            "Clause": "Error during processing",
+            "confidence_score": 0.0,
             "deduct": False,
-            "reason": f"Gemini failed: {e}",
+            "reason": f"Model failed to generate a response: {e}",
             "deducted_from": event.get("start_time"),
             "deducted_to": event.get("end_time"),
-            "total_hours": 0
+            "total_hours": 0.0
         }
 
-
-
-def calculate_deduction_from_event(clause: str, event: dict):
-    """
-    Computes deduction using clause and enriched remark + time info.
-    Expects event to include 'reason', 'start_time', 'end_time'
-    """
-    # Ensure required keys exist
-    event_structured = {
-        "reason": event.get("reason") or event.get("event", "No reason provided"),
-        "start_time": event.get("start_time"),
-        "end_time": event.get("end_time")
-    }
-
-    return ask_gemini_if_deduct(clause, event_structured)
 
 
