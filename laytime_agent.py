@@ -51,7 +51,12 @@ You will receive:
 - A/C
 - TERMS
 - PRODUCT
-- DISCHARGE RATE = DISRATE
+- **DISCHARGE RATE: Extract ONLY the numerical value for the discharge rate. Ignore any units (like "MT/day", "tons per day", "TPD", "Metric Tons per Day") or descriptive text. Map this clean numerical string to the key "Discharge Rate".
+  Examples:
+  - If text is "Discharge Rate: 15,000 MT/day", extract "15000".
+  - If text is "Rate of discharge is 12,500 TPD", extract "12500".
+  - If text is "500 tons/day", extract "500".
+  - If text is "Discharging at 20,000 Metric Tons per Day", extract "20000".**
 - LTC AT
 - DEMURRAGE
 - DESPATCH
@@ -66,10 +71,13 @@ You will receive:
 - Vessel Berthed Date & Time
 - Commenced Cargo Date & Time
 - Completed Cargo Date & Time
-- Chronological Events: as a list of objects with:
-  - Date & Time
-  - Event
-  - Remarks (if present)
+- Chronological Events: as a list of objects with the following fields extracted from the SoF's chronological logs:
+  - Date (e.g., "DD/MM/YYYY")
+  - Day (e.g., "Monday")
+  - start_time (e.g., "HH:MM")
+  - end_time (e.g., "HH:MM")
+  - Event (description of the event/phase)
+  - Remarks (any additional comments)
 
 ⚠️ STRICTLY return the data in the following JSON format:
 
@@ -79,7 +87,7 @@ You will receive:
   "A/C": "...",
   "TERMS": "...",
   "PRODUCT": "...",
-  "DISRATE": "...",
+  "Discharge Rate": "...", // Changed key from DISRATE to Discharge Rate
   "LTC AT": "...",
   "DEMMURAGE": "...",
   "DESPATCH": "...",
@@ -91,8 +99,19 @@ You will receive:
   "Vessel Arrival": "...",
   "Vessel Berthed": "...",
   "Commenced Cargo": "...",
-  "Completed Cargo": "..."
+  "Completed Cargo": "...",
+  "Chronological Events": [
+    {
+      "Date": "...",
+      "Day": "...",
+      "start_time": "...",
+      "end_time": "...",
+      "Event": "...",
+      "Remarks": "..."
+    }
+  ]
 }
+```
 """
     try:
         flattened_contract = flatten_contract(contract_data)
@@ -104,7 +123,21 @@ You will receive:
         match = re.search(r"\{[\s\S]*\}", raw)
         if not match:
             raise ValueError("❌ No JSON object found in Gemini response")
-        return json.loads(match.group(0)), raw
+        
+        extracted_json = json.loads(match.group(0))
+
+        # Post-processing for Discharge Rate to ensure it's a clean numerical string
+        if "Discharge Rate" in extracted_json and extracted_json["Discharge Rate"] is not None:
+            disrate_value = str(extracted_json["Discharge Rate"])
+            # Use regex to find the first sequence of digits and optional decimal point
+            # This regex is made more robust to handle commas, spaces, and common units
+            disrate_num_match = re.search(r'(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+)', disrate_value.replace(" ", ""))
+            if disrate_num_match:
+                extracted_json["Discharge Rate"] = disrate_num_match.group(1).replace(",", "") # Remove commas after extraction
+            else:
+                extracted_json["Discharge Rate"] = "" # Set to empty string if no number found
+
+        return extracted_json, raw
     except Exception as e:
         return {"error": str(e)}, raw if 'raw' in locals() else ""
 
@@ -159,15 +192,16 @@ class LaytimeCalculator:
         return total
 
     def total_deduction_hours(self) -> float:
-        print(f'sum:{sum(d.get("total_hours", 0.0) for d in self.deductions if d.get("deduct", False))}')
-        return sum( 
-            d.get("total_hours", 0.0)
+        # Ensure total_hours is converted to float before summing
+        deducted_sum = sum(
+            float(d.get("total_hours", 0.0)) # Explicitly cast to float
             for d in self.deductions
             if d.get("deduct", False)
         )
+        print(f'sum:{deducted_sum}')
+        return deducted_sum
 
     def net_laytime_hours(self) -> float:
         print(f"records:{self.blocks}")
         print(f"deductions:{self.deductions}")
         return self.total_block_hours() - self.total_deduction_hours()
-

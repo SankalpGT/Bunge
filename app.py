@@ -124,9 +124,9 @@ def parse_working_hours(text):
     mf_match = mon_fri_pattern.search(text)
     sat_match = sat_pattern.search(text)
     if mf_match:
-        wh["mon_fri"] = (mf_match.group(1), mf_match.group(2))
+        wh["mon_fri"] = (mf_match.group(4), mf_match.group(5)) # Corrected group indices
     if sat_match:
-        wh["sat"] = (sat_match.group(1), sat_match.group(2))
+        wh["sat"] = (sat_match.group(4), sat_match.group(5)) # Corrected group indices
     return wh if wh else None
 
 # # Helper to flatten nested dicts/lists into a list of strings
@@ -310,17 +310,35 @@ if st.button("Extract and Analyze") and uploaded_files:
         else:
             events = structured_data.get("Chronological Events", [])
             for e in events:
+                # Case 1: "Date & Time" field
                 if e.get("Date & Time"):
                     try:
                         ts = datetime.strptime(e.get("Date & Time"), "%Y-%m-%d %H:%M")
+                        # Derive date and day from timestamp for consistency
+                        date_val = ts.strftime("%d/%m/%Y")
+                        day_val = ts.strftime("%A")
                         all_events.append({
                             "timestamp": ts,
                             "event": e.get("Event"),
-                            "remarks": e.get("Remarks")
+                            "remarks": e.get("Remarks"),
+                            "date": date_val, # Add date
+                            "day": day_val # Add day
                         })
-                    except:
-                        continue
-
+                    except ValueError:
+                        # Fallback for "Date & Time" if format is "DD/MM/YYYY HH:MM"
+                        try:
+                            ts = datetime.strptime(e.get("Date & Time"), "%d/%m/%Y %H:%M")
+                            date_val = ts.strftime("%d/%m/%Y")
+                            day_val = ts.strftime("%A")
+                            all_events.append({
+                                "timestamp": ts,
+                                "event": e.get("Event"),
+                                "remarks": e.get("Remarks"),
+                                "date": date_val, # Add date
+                                "day": day_val # Add day
+                            })
+                        except Exception:
+                            continue # Skip if parsing fails
                 # Case 2: split fields (date, day, start_time, end_time)
                 elif e.get("Date") or e.get("date"):
                     date_val   = e.get("Date") or e.get("date")
@@ -328,20 +346,21 @@ if st.button("Extract and Analyze") and uploaded_files:
                     start_val  = e.get("start_time") or e.get("Start_Time")
                     end_val    = e.get("end_time")   or e.get("End_Time")
                     remarks_val= e.get("Remarks")    or e.get("remarks")
+                    event_val  = e.get("Event")      or e.get("event")
 
                     ev = {
                         "date":       date_val,
                         "day":        day_val,
                         "start_time": start_val,
                         "end_time":   end_val,
-                        "remarks":    remarks_val
+                        "remarks":    remarks_val,
+                        "event":      event_val # Include event description
                     }
-
+                    all_events.append(ev)
                 else:
                     # neither format recognized
                     continue
 
-                all_events.append(ev)
                 
             if any("timestamp" in ev for ev in all_events):
                 all_events.sort(key=lambda x: x["timestamp"])
@@ -373,30 +392,46 @@ if st.button("Extract and Analyze") and uploaded_files:
                     end_dt = None
                     date_str = e["date"]
                     day_str  = e.get("day", "")
-                    start_dt = parser.parse(f"{date_str} {e['start_time']}", dayfirst=True)
+                    # Handle potential missing year in date_str if only DD/MM is provided
+                    try:
+                        start_dt = parser.parse(f"{date_str} {e['start_time']}", dayfirst=True)
+                    except ValueError:
+                        # Assume current year if year is missing
+                        current_year = datetime.now().year
+                        start_dt = parser.parse(f"{date_str}/{current_year} {e['start_time']}", dayfirst=True)
+
                     if e.get("end_time"):
-                        end_dt = parser.parse(f"{date_str} {e['end_time']}", dayfirst=True)
-                    label  = e.get("Event", "")
-                    reason = e.get("Remarks") or e.get("remarks") or ""
+                        try:
+                            end_dt = parser.parse(f"{date_str} {e['end_time']}", dayfirst=True)
+                        except ValueError:
+                            current_year = datetime.now().year
+                            end_dt = parser.parse(f"{date_str}/{current_year} {e['end_time']}", dayfirst=True)
+
+                    label  = e.get("event", "") # Use 'event' for description
+                    reason = e.get("remarks") or "" # Use 'remarks' for additional comments
                     ranges.append((date_str, day_str, start_dt, end_dt, label, reason))
 
-                # Case B: timestamped events to be paired
+                # Case B: timestamped events to be paired (from older format)
                 elif e.get("timestamp") and idx + 1 < len(events) and events[idx+1].get("timestamp"):
                     start_dt = e["timestamp"]
                     end_dt   = events[idx+1]["timestamp"]
                     label    = e.get("event", "")
                     reason   = e.get("remarks", "")
-                    ranges.append(("", "", start_dt, end_dt, label, reason))
+                    # Derive date and day from timestamp for consistency
+                    date_str = start_dt.strftime("%d/%m/%Y")
+                    day_str = start_dt.strftime("%A")
+                    ranges.append((date_str, day_str, start_dt, end_dt, label, reason))
 
             # 2) For each (start, end), slice into working-hour blocks
+            blocks = []
             for date_str, day_str, start_dt, end_dt, label, reason in ranges:
-                if end_dt is None:
+                if end_dt is None: # Handle events without an end time (e.g., single timestamp events)
                     blk = {
                         "date":        date_str,
                         "day":         day_str,
                         "start_time":  start_dt.strftime("%Y-%m-%d %H:%M"),
-                        "end_time":    None,
-                        "reason":      reason
+                        "end_time":    None, # Keep as None if no end time
+                        "reason":      reason # This will be the event description/remarks
                     }
                     if label:
                         blk["event_phase"] = label
@@ -415,18 +450,18 @@ if st.button("Extract and Analyze") and uploaded_files:
                                 "day" : day_str,
                                 "start_time": seg_start.strftime("%Y-%m-%d %H:%M"),
                                 "end_time":   seg_end.strftime("%Y-%m-%d %H:%M"),
-                                "reason":     reason
+                                "reason":     reason # This will be the event description/remarks
                             }
                             if label:
                                 blk["event_phase"] = label
                             blocks.append(blk)
-                    else:
+                    else: # If no working hours defined for the day (e.g., Sunday) or parsing failed
                         blk = {
                                 "date" : date_str,
                                 "day" : day_str,
                                 "start_time": curr.strftime("%Y-%m-%d %H:%M"),
                                 "end_time":   end_dt.strftime("%Y-%m-%d %H:%M"),
-                                "reason":     reason
+                                "reason":     reason # This will be the event description/remarks
                             }
                         if label:
                             blk["event_phase"] = label
@@ -456,30 +491,33 @@ if st.button("Extract and Analyze") and uploaded_files:
         nor_df = split_nor_period(pd.DataFrame(blocks), nor_clause_text)
         st.dataframe(nor_df)
 
-        # Step 3: Clause–Remark Matching
-        st.header("Step 3: Clause–Remark Matching")
+        # Initialize records here to ensure it's always defined
         records = nor_df.to_dict("records")
-        remark_texts = [b["reason"] or b["event_phase"] for b in records[1:]]
-        pairs = []
 
-        if clause_texts and remark_texts:
-            pairs = match_clause_remark_pairs(
-                clause_texts,
-                remark_texts
-            )
+        # # Step 3: Clause–Remark Matching
+        # st.header("Step 3: Clause–Remark Matching")
+        # # Use 'reason' or 'event_phase' for remarks, ensuring it's not None
+        # remark_texts = [b.get("reason") or b.get("event_phase") for b in records[1:] if b.get("reason") or b.get("event_phase")]
+        # pairs = []
 
-            # Print all matches
-            for p in pairs:
-                st.markdown(f"**Clause:** {p['clause']}")
-                st.markdown(f"**Remark:** {p['remark']}")
-                st.markdown(f"• Score: `{p['score']}`")
-                st.divider()
+        # if clause_texts and remark_texts:
+        #     pairs = match_clause_remark_pairs(
+        #         clause_texts,
+        #         remark_texts
+        #     )
+
+        #     # Print all matches
+        #     for p in pairs:
+        #         st.markdown(f"**Clause:** {p['clause']}")
+        #         st.markdown(f"**Remark:** {p['remark']}")
+        #         st.markdown(f"• Score: `{p['score']}`")
+        #         st.divider()
 
   
         # # Step 4: Deduction Engine (Gemini-powered)
         st.header("Step 4: Laytime Deductions (via Gemini)")
 
-        deductions = []
+        raw_deductions = [] # Store all deduction results first
         if 'clause_texts' in locals() and 'records' in locals() and clause_texts and records:
             st.info(f"Analyzing {len(records)} events against {len(clause_texts)} clauses...")
 
@@ -489,6 +527,8 @@ if st.button("Extract and Analyze") and uploaded_files:
                     "reason": event_record.get("reason") or event_record.get("event_phase") or "No reason provided",
                     "start_time": event_record.get("start_time"),
                     "end_time": event_record.get("end_time"),
+                    "date": event_record.get("date"), # Pass original date
+                    "day": event_record.get("day")   # Pass original day
                 }
 
                 # Skip events without a clear reason or time range
@@ -499,20 +539,24 @@ if st.button("Extract and Analyze") and uploaded_files:
                 deduction_result = analyze_event_against_clauses(event_obj, clause_texts)
 
                 # Append result for display and further calculation
-                deductions.append(deduction_result)
-            st.markdown("Deductions")
-            st.json(deductions, expanded=True, width="stretch")
+                raw_deductions.append(deduction_result)
+            
+            # Filter deductions to only include those where 'deduct' is True
+            deductions = [d for d in raw_deductions if d.get("deduct", False)]
+
+            st.markdown("Deductions (Only 'deduct: True' shown in final report)")
+            st.json(raw_deductions, expanded=True, width="stretch") # Show all raw deductions for transparency
 
             # ✅ Display deductions
-            st.subheader("🔎 Final Deductions")
+            st.subheader("🔎 Final Deductions (Only 'deduct: True' events)")
 
             if not deductions:
-                st.warning("⚠️ No valid deductions could be analyzed.")
+                st.warning("⚠️ No valid deductions could be analyzed or all were marked as 'deduct: False'.")
             else:
                 for i, d in enumerate(deductions):
                     is_deducted = d.get("deduct", False)
                     confidence = d.get("confidence_score", 0.0)
-                    color = "green" if is_deducted else "orange"
+                    color = "green" if is_deducted else "orange" # Will always be green now due to filtering
                 
                     title = f"Event: {d.get('Remark', 'N/A')[:70]}..."
 
@@ -525,15 +569,17 @@ if st.button("Extract and Analyze") and uploaded_files:
                         st.markdown(f"**Hours:** `{d.get('total_hours', 0.0)}`")
 
                 upload_to_s3(
-                    json.dumps(deductions, indent=2),
+                    json.dumps(deductions, indent=2), # Upload only filtered deductions
                     f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                 )
                 st.success("✅ Deductions saved to S3.")
         else:
             st.warning("⚠️ Cannot run deduction engine. Clause texts or event records are missing.")
+            deductions = [] # Ensure deductions is an empty list if not run
 
         # Step 5: Final Laytime Summary
-        if records and deductions:
+        # Ensure records and deductions are available for calculation
+        if 'records' in locals() and 'deductions' in locals() and records:
             calc = LaytimeCalculator(records, deductions)
             total = calc.total_block_hours()
             deduc = calc.total_deduction_hours()
@@ -541,8 +587,8 @@ if st.button("Extract and Analyze") and uploaded_files:
 
             st.header("🧮 Laytime Calculation Summary")
             st.markdown(f"- **Total Working-Hour Blocks:** {total:.2f} hrs")
-            st.markdown(f"- **Total Deductions:**          {deduc:.2f} hrs")
-            st.markdown(f"- **Net Laytime Used:**         {net:.2f} hrs")
+            st.markdown(f"- **Total Deductions:** {deduc:.2f} hrs")
+            st.markdown(f"- **Net Laytime Used:** {net:.2f} hrs")
 
         # Final block: generate Excel if both Contract and SoF were extracted
         if "Contract" in extracted_data and "SoF" in extracted_data:
@@ -563,7 +609,10 @@ if st.button("Extract and Analyze") and uploaded_files:
             st.json(metadata_response)
 
             # ✅ Build Excel workbook using new format
-            excel_wb = generate_excel_from_extracted_data(metadata_response)
+            # Pass nor_df, the FILTERED deductions, and net_laytime_used_hours to the excel exporter
+            # Ensure net is defined before passing it
+            net_laytime_used_hours = net if 'net' in locals() else 0.0
+            excel_wb = generate_excel_from_extracted_data(metadata_response, nor_df, deductions, net_laytime_used_hours)
             excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
             # ✅ Save Excel to temp file
@@ -580,4 +629,3 @@ if st.button("Extract and Analyze") and uploaded_files:
 
 else:
     st.info("📎 Please upload required documents and click 'Extract and Analyze' to continue.")
-

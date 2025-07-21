@@ -36,11 +36,11 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
     clause, score the match, and determine if laytime should be deducted.
 
     Args:
-        event (dict): An object with 'reason', 'start_time', and 'end_time'.
+        event (dict): An object with 'reason', 'start_time', 'end_time', 'date', and 'day'.
         clause_texts (list[str]): A list of all clauses from the contract.
 
     Returns:
-        dict: A JSON object with the analysis result.
+        dict: A JSON object with the analysis result, including original event details.
     """
     clauses_formatted = "\n".join([f"- {c}" for c in clause_texts])
 
@@ -52,8 +52,11 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         Follow these steps precisely:
         1.  **Analyze the Event:** Review the event's description, start time, and end time.
         2.  **Find the Best Match:** From the list of all available `Contract Clauses`, identify the single most relevant clause that applies to this event.
-        3.  **Calculate Confidence:** Assign a confidence score between 0.0 (no match) and 1.0 (perfect match) for how well the chosen clause applies to the event.
-        4.  **Decide on Deduction:** Based on the event and the matched clause, determine if this event caused a disruption that should be deducted from laytime.
+        3.  **Decide on Deduction:**
+            - **Laytime should ONLY be deducted if there is a clear and unambiguous exclusion clause that directly applies to the *reason for the delay or interruption* of the cargo operation.**
+            - **Normal cargo operations (e.g., loading, discharging, shifting for cargo, waiting for cargo) should generally *NOT* be deducted from laytime, unless the event explicitly states a reason for stoppage or delay that is covered by an exclusion clause.**
+            - For example, if the event is "Discharging cargo", it should *not* be deducted. If the event is "Discharging stopped due to rain", and there's a weather clause, then it *should* be deducted.
+        4.  **Calculate Confidence:** Assign a confidence score between 0.0 (no match) and 1.0 (perfect match) for how well the chosen clause applies to the event.
         5.  **Calculate Duration:** Compute the total duration of the event in hours.
 
         Return a **single, clean JSON object** in the following strict format. Do not include any other text or explanations outside the JSON block. Every remark should return corresponding clause and deduction block.
@@ -66,7 +69,9 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         "reason": "A short explanation for your deduction decision (e.g., 'Suspension of pumping due to rain as per weather clause')",
         "deducted_from": "{event.get('start_time')}",
         "deducted_to": "{event.get('end_time')}",
-        "total_hours": <float, formatted to 4 decimal places>
+        "total_hours": <float, formatted to 4 decimal places>,
+        "event_date": "{event.get('date')}",
+        "event_day": "{event.get('day')}"
         }}
 
         ---
@@ -74,6 +79,8 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         - **Description:** {event.get('reason')}
         - **Start Time:** {event.get('start_time')}
         - **End Time:** {event.get('end_time')}
+        - **Date:** {event.get('date')}
+        - **Day:** {event.get('day')}
 
         ---
         **Contract Clauses (Find the best match from this list):**
@@ -94,8 +101,7 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
             "reason": f"Model failed to generate a response: {e}",
             "deducted_from": event.get("start_time"),
             "deducted_to": event.get("end_time"),
-            "total_hours": 0.0
+            "total_hours": 0.0,
+            "event_date": event.get('date'),
+            "event_day": event.get('day')
         }
-
-
-
