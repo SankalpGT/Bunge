@@ -61,6 +61,8 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         Return a **single, clean JSON object** in the following strict format. Do not include any other text or explanations outside the JSON block. Every remark should return corresponding clause and deduction block.
 
         {{
+        "Date": event.get('date'),
+        "Day": event.get('day'),
         "Remark": "{event.get('reason')}",
         "Clause": "The full text of the best matching clause you identified",
         "confidence_score": <float, e.g., 0.85>,
@@ -89,6 +91,8 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
     except Exception as e:
         print(f"❌ Gemini API call failed: {e}")
         return {
+            "Date": event.get('date'),
+            "Dau": event.get('day'),
             "Remark": event.get('reason'),
             "Clause": "Error during processing",
             "confidence_score": 0.0,

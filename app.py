@@ -361,7 +361,7 @@ if st.button("Extract and Analyze") and uploaded_files:
         st.success("✅ Required documents uploaded and processed successfully.")
        
         # Step 2.5: Club Events by Working Hours
-        st.header("🗓️ Chronological Events Clubbed by Working Hours")
+        st.header("🗓️ Chronological Events")
 
         def build_event_blocks(events):
             blocks = []
@@ -440,12 +440,12 @@ if st.button("Extract and Analyze") and uploaded_files:
         # …later…
         blocks = build_event_blocks(all_events)
 
-        if blocks:
-            st.dataframe(pd.DataFrame(blocks))
+        # if blocks:
+        #     st.dataframe(pd.DataFrame(blocks))
 
 
         # ─ Step 2.5: Insert NOR split ─────────────────────────────────────────────────
-        st.header("⏱ Insert NOR Period & Clip Logs")
+        # st.header("⏱ Insert NOR Period & Clip Logs")
         # grab the NOR clause content from your flat clause_texts
         nor_clause_text = ""
         for ct in clause_texts1:
@@ -527,9 +527,11 @@ if st.button("Extract and Analyze") and uploaded_files:
             for event_record in records:
                 # Prepare the event object for the deduction engine
                 event_obj = {
-                    "reason": event_record.get("reason") or event_record.get("event_phase") or "No reason provided",
+                    "date": event_record.get("date"),
+                    "day": event_record.get("day"),
                     "start_time": event_record.get("start_time"),
                     "end_time": event_record.get("end_time"),
+                    "reason": event_record.get("reason") or event_record.get("event_phase") or "No reason provided",
                 }
 
                 # Skip events without a clear reason or time range
@@ -602,7 +604,8 @@ if st.button("Extract and Analyze") and uploaded_files:
             st.json(metadata_response)
 
             # ✅ Build Excel workbook using new format
-            excel_wb = generate_excel_from_extracted_data(metadata_response)
+            net_laytime_used_hours = net if 'net' in locals() else 0.0
+            excel_wb = generate_excel_from_extracted_data(metadata_response, nor_df, deductions, net_laytime_used_hours, deduc)
             excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
             # ✅ Save Excel to temp file
@@ -619,4 +622,3 @@ if st.button("Extract and Analyze") and uploaded_files:
 
 else:
     st.info("📎 Please upload required documents and click 'Extract and Analyze' to continue.")
-

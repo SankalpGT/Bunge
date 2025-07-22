@@ -165,9 +165,11 @@ class LaytimeCalculator:
 
     def total_deduction_hours(self) -> float:
         return sum( 
-            d.get("total_hours", 0.0)
+            float(d.get("total_hours"))
             for d in self.deductions
             if d.get("deduct", False)
+            and isinstance(d.get("total_hours", None), (int, float, str))
+            and str(d["total_hours"]).replace('.', '', 1).isdigit()
         )
 
     def net_laytime_hours(self) -> float:
