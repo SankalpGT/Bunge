@@ -60,11 +60,14 @@ def extract_with_gemini(pdf_path):
     - If it's a **Contract**:
         - If clause numbers like 4.1 or 4.2 are present, retain them in titles, but do not rely on them.
         - Parse section titles from visual layout, headings, or all-caps formatting.
+        - Maintain seperate key value for all clause and subclause. Name the keys as "heading" or "title" and values as "body" or "content".
         - Group related content under its section and preserve paragraph or bullet structure inside each.
         - Include all information relevant to terms, risks, prices, parties, dates, weather & holiday exemptions and procedures.
         - Do NOT summarize. Do NOT infer. Just extract and preserve structure from the contract as written.
         - The clauses should be inside "sections" key.
         - The working hours should be framed like "'Monday to Friday' : 'HH:MM to HH:MM'" and "'Saturday' : 'HH:MM to HH:MM'" if provided. Add it to the start of the extracted json file.
+        - Add the time of laytime commencement after working hours in the start as a key value pair of "laytime_commencement":"Time Unit"
+        - Add the Demurrage cost as "demurrage", Despatch Cost as "despatch", Discharge rate "disrate", TERMS of contract as "terms" as seperate key value pairs after "laytime_commencement". Keep only the values of them without units.
     - If it's a **Letter of Protest**:
         - Extract protest reason, submitted by/to, timestamps, signatures
     - If NOR
@@ -81,7 +84,7 @@ def extract_with_gemini(pdf_path):
     - Output must be valid JSON only.
     - Do not include any commentary or explanation.
     """
-    
+
     try:
         # Upload PDF and generate content
         response = model.generate_content([prompt, genai.upload_file(pdf_path)])

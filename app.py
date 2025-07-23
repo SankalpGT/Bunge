@@ -32,7 +32,7 @@ def extract_nor_delay_hours(clause_text: str) -> int:
     m = re.search(pattern, clause_text, re.IGNORECASE)
     return int(m.group(1)) if m else 0
 
-def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
+def split_nor_period(df: pd.DataFrame, laytime_commencement: str) -> pd.DataFrame:
     d = df.copy()
     d['start_time'] = pd.to_datetime(d['start_time'])
     d['end_time']   = pd.to_datetime(d['end_time'])
@@ -59,7 +59,7 @@ def split_nor_period(df: pd.DataFrame, nor_clause_text: str) -> pd.DataFrame:
         # fallback to first timestamp if no explicit NOR found
         nor_tender = d.loc[0, 'start_time']
 
-    delay_h      = extract_nor_delay_hours(nor_clause_text)
+    delay_h      = extract_nor_delay_hours(laytime_commencement)
     default_cut  = nor_tender + timedelta(hours=delay_h)
 
     # —— new: see if any "Commenced Discharging" happens earlier
@@ -197,7 +197,8 @@ if st.button("Extract and Analyze") and uploaded_files:
     uploaded_doc_types = []
     clause_texts = []
     clause_texts1 = []
-    #remark_texts = []
+    metadata = {}
+    laytime_commencement = ""
     extracted_data = {}
     all_events = []
     st.session_state.pop("working_hours", None)
@@ -234,10 +235,15 @@ if st.button("Extract and Analyze") and uploaded_files:
 
         uploaded_doc_types.append(doc_type)
         extracted_data[doc_type] = structured_data
-
         st.markdown(f"**doctype**: {doc_type}")
         if str(doc_type).strip().lower() == "contract":
             st.markdown(f"Struc : {structured_data}")
+            laytime_commencement = structured_data.get("laytime_commencement")
+            metadata["LTC AT"] = structured_data.get("laytime_commencement")
+            metadata["DEMMURAGE"] = structured_data.get("demurrage")
+            metadata["DESPATCH"] = structured_data.get("despatch")
+            metadata["DISRATE"] = structured_data.get("disrate")
+            metadata["TERMS"] = structured_data.get("terms")
             default_wh_text = "Monday to Friday: 09:00 to 17:00; Saturday: 09:00 to 13:00"
             default_wh = parse_working_hours(default_wh_text)
             work_hours = default_wh.copy() if default_wh else {"mon_fri": None, "sat": None}
@@ -440,26 +446,17 @@ if st.button("Extract and Analyze") and uploaded_files:
         # …later…
         blocks = build_event_blocks(all_events)
 
-        # if blocks:
-        #     st.dataframe(pd.DataFrame(blocks))
+        # Step 2.5: Insert NOR split 
 
-
-        # ─ Step 2.5: Insert NOR split ─────────────────────────────────────────────────
-        # st.header("⏱ Insert NOR Period & Clip Logs")
-        # grab the NOR clause content from your flat clause_texts
-        nor_clause_text = ""
-        for ct in clause_texts1:
-            lower = ct.lower()
-            if ("notice of readiness" in lower or "nor" in lower) and "laytime" in lower:
-                nor_clause_text = ct.split(":",1)[1].strip() if ":" in ct else ct
-                break
-
-        nor_df = split_nor_period(pd.DataFrame(blocks), nor_clause_text)
+        nor_df = split_nor_period(pd.DataFrame(blocks), metadata["LTC AT"])
 
         adjusted_nor_df = nor_df.copy()
 
         # Ensure 'date' is a proper date (not datetime) for grouping
-        adjusted_nor_df['date'] = pd.to_datetime(adjusted_nor_df['date']).dt.date
+        adjusted_nor_df['date'] = pd.to_datetime(
+            adjusted_nor_df['date'],
+            dayfirst=True
+        ).dt.date
 
         # 1) NATIONAL HOLIDAYS
         # Identify dates where reason mentions 'holiday'
@@ -592,16 +589,18 @@ if st.button("Extract and Analyze") and uploaded_files:
 
             # 🔄 Extract structured metadata + events using Gemini
             metadata_response, raw_response = extract_metadata_from_docs(contract_raw, sof_raw)
+            
+            st.markdown(f"metadata: {metadata}")
+            st.markdown(f"metadata_response: {metadata_response}")
 
-            # 🧾 Display keys (optional)
-            st.subheader("✅ Populating Excel with extracted metadata + events")
-            st.markdown("### 🔑 Contract Keys")
-            st.json(list(contract_raw.keys()))
-            st.markdown("### 🔑 SoF Keys")
-            st.json(list(sof_raw.keys()))
+            for k, v in metadata.items():
+                if v is not None: 
+                    metadata_response[k] = v
 
-            st.markdown("### 🧾 Metadata Preview")
-            st.json(metadata_response)
+            st.markdown(f"metadata_response: {metadata_response}")
+
+            # st.markdown("### 🧾 Metadata Preview")
+            # st.json(metadata_response)
 
             # ✅ Build Excel workbook using new format
             net_laytime_used_hours = net if 'net' in locals() else 0.0

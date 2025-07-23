@@ -14,7 +14,7 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
         # Robustly extract numerical part from Quantity and Discharge Rate
         quantity_raw = metadata.get("Quantity", "")
         # Changed key from DISRATE to Discharge Rate
-        disrate_raw = metadata.get("Discharge Rate", "") 
+        disrate_raw = metadata.get("DISRATE", "") 
 
         # Use regex to find numbers (integers or floats)
         quantity_match = re.search(r'(\d+\.?\d*)', str(quantity_raw))
@@ -24,7 +24,7 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
         disrate = float(disrate_match.group(1)) if disrate_match else 0.0
 
         if disrate != 0:
-            time_allowed = f"{quantity / disrate:.2f}"
+            time_allowed = f"{quantity / disrate:.4f}"
         else:
             time_allowed = "N/A (Discharge Rate is zero)"
     except Exception as e:
@@ -32,10 +32,16 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
 
     laytime_allowed_value = deductions[0].get('deducted_to', 'N/A Discharge rate is 0')
 
+    a_c = ""
+    if metadata.get("A/C", ""):
+        a_c = metadata.get("A/C", "")
+    else:
+        a_c = metadata.get("Charterer", "")
+
     # -- Top: Metadata Header Rows --
     header_rows = [
         ["Vessel Name :", metadata.get("Vessel Name", ""), "", "", "PORT :", metadata.get("Port", "")],
-        ["A/C :", metadata.get("A/C", ""), "", "", "QUANTITY :", metadata.get("Quantity", "")],
+        ["A/C :", a_c, "", "", "QUANTITY :", metadata.get("Quantity", "")],
         ["TERMS :", metadata.get("TERMS", ""), "DISRATE :", metadata.get("DISRATE", ""), "NOR TENDERED :", metadata.get("NOR TENDERED", "")], 
         ["PRODUCT :", metadata.get("PRODUCT", "")],
         ["LTC  AT :", metadata.get("LTC AT", "")],
@@ -80,12 +86,12 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
         
     ws.append([])
 
-    ws.append(["", "", "", "", "Total", f"{total_deducted_hours:.2f}", ""])
+    ws.append(["TIME ALLOWED :", time_allowed, "", "", "", "Total", f"{total_deducted_hours:.2f}", ""])
 
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
 
-    ws.append(["TIME USED", f"{net_laytime_used_hours:.2f}"])
+    ws.append(["TIME USED", f"{net_laytime_used_hours/24.0:.4f}"])
 
     for cell in ws[ws.max_row]:
         cell.alignment = Alignment(horizontal="left", vertical="top") # Ensure alignment for this row too

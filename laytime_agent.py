@@ -48,17 +48,17 @@ You will receive:
 
 ### 📘 From Contract:
 - Vessel Name
-- A/C
+- A/C. It can be present Charterer
 - TERMS
 - PRODUCT
-- DISCHARGE RATE = DISRATE
+- DISCHARGE RATE/DISRATE. Check the document to find the quantity of goods which are to be discharged per day.
 - LTC AT
 - DEMURRAGE
 - DESPATCH
 
 ### 📄 From SoF:
 - Port
-- Charterer
+- Charterers
 - Quantity
 - NOR TENDERED (if present)
 - NOR VALID (if present)
