@@ -91,11 +91,36 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
 
-    ws.append(["TIME USED", f"{net_laytime_used_hours/24.0:.4f}"])
+    time_used = f"{net_laytime_used_hours/24.0:.4f}"
+    ws.append(["TIME USED", time_used])
 
     for cell in ws[ws.max_row]:
         cell.alignment = Alignment(horizontal="left", vertical="top") # Ensure alignment for this row too
         cell.font = Font(bold=True)
+
+    print(f"time_used: {time_used}")
+    print(f"type time_used: {type(time_used)}")
+    print(f"time_allowed: {time_allowed}")
+    print(f"type time_allowed: {type(time_allowed)}")
+    difference = round(float(time_used) - float(time_allowed), 4)
+    if difference > 0:
+        rate = float(metadata.get("DEMMURAGE", 0))
+        cost = difference * rate
+        ws.append(["DEMMURAGE", f"{difference:.4f}"])
+        ws.append(["Rate US$", rate, f"{cost:.2f}"])
+    elif difference < 0:
+        des_pull = abs(difference)
+        rate = float(metadata.get("DESPATCH", 0))
+        credit = des_pull * rate
+        ws.append(["DESPATCH", f"{des_pull:.4f}"])
+        ws.append(["Rate US$", rate, f"{credit:.2f}"])
+    else:
+        ws.append(["NO DEMURRAGE OR DESPATCH APPLICABLE", "0"])
+
+    # Bold all the last few rows
+    for row in ws.iter_rows(min_row=ws.max_row - 3, max_row=ws.max_row):
+        for cell in row:
+            cell.font = Font(bold=True)
 
     # -- Align all cells left --
     for row in ws.iter_rows():

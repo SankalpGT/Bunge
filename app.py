@@ -3,7 +3,6 @@ import os
 import json
 import tempfile
 from extractor import extract_with_gemini
-from embedding_matcher import match_clause_remark_pairs
 from deduction_engine import analyze_event_against_clauses
 from s3_handler import upload_to_s3
 from laytime_agent import extract_metadata_from_docs
@@ -589,18 +588,10 @@ if st.button("Extract and Analyze") and uploaded_files:
 
             # 🔄 Extract structured metadata + events using Gemini
             metadata_response, raw_response = extract_metadata_from_docs(contract_raw, sof_raw)
-            
-            st.markdown(f"metadata: {metadata}")
-            st.markdown(f"metadata_response: {metadata_response}")
 
             for k, v in metadata.items():
                 if v is not None: 
                     metadata_response[k] = v
-
-            st.markdown(f"metadata_response: {metadata_response}")
-
-            # st.markdown("### 🧾 Metadata Preview")
-            # st.json(metadata_response)
 
             # ✅ Build Excel workbook using new format
             net_laytime_used_hours = net if 'net' in locals() else 0.0
