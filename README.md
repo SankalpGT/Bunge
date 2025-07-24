@@ -42,16 +42,7 @@ pip install -r requirements.txt
 
 ### 4. Set Up Your Google Gemini API Key
 
-
-
-
-    GOOGLE_API_KEY=your-google-api-key-here
-    AWS_ACCESS_KEY=your-aws-access-key-here
-    AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
-
-B. Enter it manually in the Streamlit app when prompted
-
-C. Export in bash
+Export in bash
 
 ```bash
 #For Mac
@@ -64,7 +55,6 @@ C. Export in bash
   set GOOGLE_API_KEY=your-google-api-key-here
   set AWS_ACCESS_KEY=your-aws-access-key-here
   set AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
-```
 Get your API key from:
 👉 https://makersuite.google.com/app/apikey
 
