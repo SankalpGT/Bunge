@@ -40,7 +40,9 @@ def chronological_events(events_json_string, blocks):
                 * If `event_X` has `start_time` equal to `end_time` (instantaneous event), or if `end_time` is null/empty, find the *next event* (`event_Y`) in the chronological list that has a `start_time` *different* from `event_X`'s `start_time`. The `effective_end_time` of `event_X` for gap calculation purposes will be the `start_time` of this `event_Y`. If no such `event_Y` exists (i.e., `event_X` is the last event or all subsequent events are instantaneous at the same time), then `event_X`'s original `end_time` (even if null) should be preserved in the output.
                 * Make sure to clip all events happening in between that time. There should be single event/reason happening at a single timeframe.
             4.  **Output Format**: Return a single JSON array containing *all* original events which have start time and end time and both and for others adjust according the prompt, sorted strictly chronologically by their `start_time`. Each object in the output array must have the following keys: `date` (DD/MM/YYYY), `day` (Full weekday name), `start_time` (HH:MM), `end_time` (HH:MM), `reason`. Ensure all date/time strings are correctly formatted.
-
+            5. **If event_json_string['Reason'] is a 'National Holiday'/'Holiday' then club all the events happening on that day to a single row with date, day, start_time as 00:00 , end_time as 23:59 and Reason as 'National Holiday'.
+            6. **If day is 'Sunday' then club all the events happening on that day to a single row with date, day, start_time as 00:00 , end_time as 23:59 and Reason as 'Sunday'.
+            7. **Make sure there is start_time and end_time for every row.
             Ensure the output is *only* the JSON array, with no additional text or commentary.
     """
 

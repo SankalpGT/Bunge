@@ -244,12 +244,9 @@ if st.button("Extract and Analyze") and uploaded_files:
             metadata["DESPATCH"] = structured_data.get("despatch")
             metadata["DISRATE"] = structured_data.get("disrate")
             metadata["TERMS"] = structured_data.get("terms")
-            default_wh_text = "Monday to Friday: 09:00 to 17:00; Saturday: 09:00 to 13:00"
-            default_wh = parse_working_hours(default_wh_text)
-            work_hours = default_wh.copy() if default_wh else {"mon_fri": None, "sat": None}
-            found_mf = False
-            found_sat = False
-
+         
+            work_hours = {"mon_fri": None, "sat": None}
+         
             working_hour = structured_data.get("working_hours")
             time_dict = find_time_dict(working_hour)
             if time_dict:
@@ -512,7 +509,7 @@ if st.button("Extract and Analyze") and uploaded_files:
         adjusted_nor_df = pd.concat([nor_rows, other_rows], ignore_index=True)
 
         # 7) Display
-        print(f"adjusted_nor:{adjusted_nor_df}")
+        #print(f"adjusted_nor:{adjusted_nor_df}")
         st.dataframe(adjusted_nor_df)
 
         # --- NEW LOGIC FOR GAP FILLING AND FINAL RECORDS using Gemini ---

@@ -50,7 +50,7 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         Your task is to analyze a single operational event from a Statement of Facts (SoF) against a list of clauses from a charter party contract.
 
         Follow these steps precisely:
-        1.  **Analyze the Event:** Review the event's description, start time, and end time.
+        1.  **Analyze the Event:** Review the event's description, day, date, start_time, and end_time.
         2.  **Find the Best Match:** From the list of all available `Contract Clauses`, identify the single most relevant clause that applies to this event.
         3.  **Calculate Confidence:** Assign a confidence score between 0.0 (no match) and 1.0 (perfect match) for how well the chosen clause applies to the event.
         4.  **Decide on Deduction:** Based on the event and the matched clause, determine if this event caused a disruption that should be deducted from laytime.
@@ -61,20 +61,21 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         Return a **single, clean JSON object** in the following strict format. Do not include any other text or explanations outside the JSON block. Every remark should return corresponding clause and deduction block.
 
         {{
-        "Date": event.get('date'),
-        "Day": event.get('day'),
+        "Date": {event.get('date')},
+        "Day": {event.get('day')},
         "Remark": "{event.get('reason')}",
         "Clause": "The full text of the best matching clause you identified",
         "confidence_score": <float, e.g., 0.85>,
         "deduct": <true or false>,
         "reason": "A short explanation for your deduction decision (e.g., 'Suspension of pumping due to rain as per weather clause')",
-        "deducted_from": "{event.get('start_time')}",
-        "deducted_to": "{event.get('end_time')}",
+        "deducted_from": "{datetime.strptime(event.get('start_time'), "%Y-%m-%d %H:%M").strftime("%H:%M")}",
+        "deducted_to": "{datetime.strptime(event.get('end_time'), "%Y-%m-%d %H:%M").strftime("%H:%M")}",
         "total_hours": <float, formatted to 4 decimal places>
         }}
-
         ---
         **Event Details:**
+        - **Date:** {event.get('date')}
+        - **Day:** {event.get('day')}
         - **Description:** {event.get('reason')}
         - **Start Time:** {event.get('start_time')}
         - **End Time:** {event.get('end_time')}
