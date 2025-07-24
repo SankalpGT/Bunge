@@ -3,6 +3,7 @@ import os
 import json
 import tempfile
 from extractor import extract_with_gemini
+from chronological_event import chronological_events
 from deduction_engine import analyze_event_against_clauses
 from s3_handler import upload_to_s3
 from laytime_agent import extract_metadata_from_docs
@@ -444,6 +445,7 @@ if st.button("Extract and Analyze") and uploaded_files:
 
         # …later…
         blocks = build_event_blocks(all_events)
+        print(f"blocks:{blocks}")
 
         # Step 2.5: Insert NOR split 
 
@@ -510,12 +512,90 @@ if st.button("Extract and Analyze") and uploaded_files:
         adjusted_nor_df = pd.concat([nor_rows, other_rows], ignore_index=True)
 
         # 7) Display
+        print(f"adjusted_nor:{adjusted_nor_df}")
         st.dataframe(adjusted_nor_df)
+
+        # --- NEW LOGIC FOR GAP FILLING AND FINAL RECORDS using Gemini ---
+        st.header("✨ Refining Chronological Events with Gemini (Gap Filling)")
+
+        # Prepare data for Gemini prompt
+        # Ensure date, start_time, end_time columns are strings before sending to Gemini
+        adjusted_nor_df['date'] = adjusted_nor_df['date'].astype(str)
+        adjusted_nor_df['start_time'] = adjusted_nor_df['start_time'].astype(str)
+        adjusted_nor_df['end_time'] = adjusted_nor_df['end_time'].astype(str) # Convert to string, NaNs become "nan"
+
+        events_for_gemini = adjusted_nor_df.to_dict(orient='records')
+        events_json_string = json.dumps(events_for_gemini, indent=2)
+
+        final_records, _ = chronological_events(events_json_string, blocks)
+        st.markdown(chronological_events)
+
+        # Convert date/time strings in final_records to proper Python objects for sorting
+        # This step is crucial for robust sorting and avoiding ParserErrors.
+        for record in final_records:
+            # Ensure date and time strings are not empty or "nan" or "None" before parsing
+            date_str = str(record.get('date', '')).strip()
+            if date_str.lower() in ['none', 'nan']: date_str = ''
+
+            start_time_str = str(record.get('start_time', '')).strip()
+            if start_time_str.lower() in ['none', 'nan']: start_time_str = ''
+
+            end_time_str = str(record.get('end_time', '')).strip()
+            if end_time_str.lower() in ['none', 'nan']: end_time_str = ''
+
+            record['start_dt_obj'] = None
+            if date_str and start_time_str:
+                try:
+                    # Combine date and time to create full datetime objects for accurate parsing and sorting
+                    record['start_dt_obj'] = parser.parse(f"{date_str} {start_time_str}", dayfirst=True)
+                except Exception as e:
+                    st.warning(f"Could not parse start_datetime for sorting: '{date_str} {start_time_str}'. Error: {e}")
+                    record['start_dt_obj'] = datetime.min # Fallback for sorting
+
+            record['end_dt_obj'] = None
+            if date_str and end_time_str: # This condition is now more reliable
+                try:
+                    record['end_dt_obj'] = parser.parse(f"{date_str} {end_time_str}", dayfirst=True)
+                except Exception as e:
+                    st.warning(f"Could not parse end_datetime for sorting: '{date_str} {end_time_str}'. Error: {e}")
+                    record['end_dt_obj'] = record['start_dt_obj'] if record['start_dt_obj'] else datetime.min # Fallback
+            else: # If end_time_str is empty, default end_dt_obj to start_dt_obj
+                record['end_dt_obj'] = record['start_dt_obj'] if record['start_dt_obj'] else datetime.min
+
+            # If start_dt_obj is still None, assign datetime.min for sorting
+            if record['start_dt_obj'] is None:
+                record['start_dt_obj'] = datetime.min
+
+            # Ensure end_dt_obj is not None for sorting
+            if record['end_dt_obj'] is None:
+                record['end_dt_obj'] = record['start_dt_obj'] # Default to start time if still None
+
+
+        # Sort the final_records by the datetime objects
+        final_records.sort(key=lambda x: x['start_dt_obj'])
+        
+        # Clean up temporary datetime objects and ensure string formats are consistent
+        for record in final_records:
+            record['start_time'] = record['start_dt_obj'].strftime("%Y-%m-%d %H:%M")
+            record['end_time'] = record['end_dt_obj'].strftime("%Y-%m-%d %H:%M")
+            record['date'] = record['start_dt_obj'].strftime("%d/%m/%Y")
+            record['day'] = record['start_dt_obj'].strftime("%A")
+            del record['start_dt_obj']
+            del record['end_dt_obj']
+
+        st.markdown("### Gap-Filled and Sorted Events:")
+        st.json(final_records, expanded=True, width="stretch")
+        st.dataframe(final_records)
+
+        #records = final_records # Update 'records' for LaytimeCalculator and Deduction Engine
+
+
   
         # # Step 4: Deduction Engine (Gemini-powered)
         st.header("Laytime Deductions (via Gemini)")
         
-        records = adjusted_nor_df.to_dict("records")
+        #records = final_records.to_dict("records")
+        records = final_records
         deductions = []
         if 'clause_texts' in locals() and 'records' in locals() and clause_texts and records:
             st.info(f"Analyzing {len(records)} events against {len(clause_texts)} clauses...")
@@ -595,7 +675,7 @@ if st.button("Extract and Analyze") and uploaded_files:
 
             # ✅ Build Excel workbook using new format
             net_laytime_used_hours = net if 'net' in locals() else 0.0
-            excel_wb = generate_excel_from_extracted_data(metadata_response, nor_df, deductions, net_laytime_used_hours, deduc)
+            excel_wb = generate_excel_from_extracted_data(metadata_response, final_records, deductions, net_laytime_used_hours, deduc)
             excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
             # ✅ Save Excel to temp file

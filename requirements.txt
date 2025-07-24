@@ -3,6 +3,7 @@ streamlit
 pandas
 python-dotenv
 boto3
+google.cloud
 google-generativeai
 google-cloud-aiplatform
 google-auth
@@ -26,6 +27,7 @@ scikit-learn
 transformers
 tokenizers
 tqdm
+openpyxl
 
 # Compatibility fixes
 numpy==1.26.4  # avoid build from source
