@@ -55,8 +55,8 @@ Export in bash
   set GOOGLE_API_KEY=your-google-api-key-here
   set AWS_ACCESS_KEY=your-aws-access-key-here
   set AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
-Get your API key from:
-👉 https://makersuite.google.com/app/apikey
+```
+(Get API key from project credentials of your GCP)
 
 ### 5. Enable Vertex AI API on Your Google Cloud Project
 
