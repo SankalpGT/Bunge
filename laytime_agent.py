@@ -62,7 +62,7 @@ You will receive:
 - Quantity
 - NOR TENDERED (if present)
 - NOR VALID (if present)
-- Vessel Arrival Date & Time
+- Vessel Arrival Date & Time. It is the start time of the first event entry.
 - Vessel Berthed Date & Time
 - Commenced Cargo Date & Time
 - Completed Cargo Date & Time
@@ -147,19 +147,13 @@ class LaytimeCalculator:
 
     def total_block_hours(self) -> float:
         total = 0.0
-        # for b in self.blocks:
-            # try:
-            #     st = self._parse_dt(b["start_time"])
-            #     et = self._parse_dt(b["end_time"])
-            # except (KeyError, ValueError, TypeError) as err:
-            #     continue
-            # total += (et - st).total_seconds() / 3600.0
         try:
             st = self._parse_dt(self.blocks[0]["start_time"])
             et = self._parse_dt(self.blocks[-1]["end_time"])
         except:
             st = self._parse_dt(self.blocks[0]["start_time"])
             et = self._parse_dt(self.blocks[-1]["start_time"])
+
         total = (et - st).total_seconds() / 3600.0
         return total
 

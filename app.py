@@ -442,7 +442,6 @@ if st.button("Extract and Analyze") and uploaded_files:
 
         # …later…
         blocks = build_event_blocks(all_events)
-        print(f"blocks:{blocks}")
 
         # Step 2.5: Insert NOR split 
 
@@ -509,11 +508,10 @@ if st.button("Extract and Analyze") and uploaded_files:
         adjusted_nor_df = pd.concat([nor_rows, other_rows], ignore_index=True)
 
         # 7) Display
-        #print(f"adjusted_nor:{adjusted_nor_df}")
         st.dataframe(adjusted_nor_df)
 
         # --- NEW LOGIC FOR GAP FILLING AND FINAL RECORDS using Gemini ---
-        st.header("✨ Refining Chronological Events with Gemini (Gap Filling)")
+        # st.header("✨ Refining Chronological Events with Gemini (Gap Filling)")
 
         # Prepare data for Gemini prompt
         # Ensure date, start_time, end_time columns are strings before sending to Gemini
@@ -525,7 +523,6 @@ if st.button("Extract and Analyze") and uploaded_files:
         events_json_string = json.dumps(events_for_gemini, indent=2)
 
         final_records, _ = chronological_events(events_json_string, blocks)
-        st.markdown(chronological_events)
 
         # Convert date/time strings in final_records to proper Python objects for sorting
         # This step is crucial for robust sorting and avoiding ParserErrors.
@@ -580,13 +577,7 @@ if st.button("Extract and Analyze") and uploaded_files:
             del record['start_dt_obj']
             del record['end_dt_obj']
 
-        st.markdown("### Gap-Filled and Sorted Events:")
-        st.json(final_records, expanded=True, width="stretch")
         st.dataframe(final_records)
-
-        #records = final_records # Update 'records' for LaytimeCalculator and Deduction Engine
-
-
   
         # # Step 4: Deduction Engine (Gemini-powered)
         st.header("Laytime Deductions (via Gemini)")
@@ -618,7 +609,7 @@ if st.button("Extract and Analyze") and uploaded_files:
                 deductions.append(deduction_result)
 
             # ✅ Display deductions
-            st.subheader("🔎 Final Deductions")
+            # st.subheader("🔎 Final Deductions")
 
             if not deductions:
                 st.warning("⚠️ No valid deductions could be analyzed.")
@@ -672,7 +663,7 @@ if st.button("Extract and Analyze") and uploaded_files:
 
             # ✅ Build Excel workbook using new format
             net_laytime_used_hours = net if 'net' in locals() else 0.0
-            excel_wb = generate_excel_from_extracted_data(metadata_response, final_records, deductions, net_laytime_used_hours, deduc)
+            excel_wb = generate_excel_from_extracted_data(metadata_response, deductions, net_laytime_used_hours)
             excel_filename = f"Laytime_Metadata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
             # ✅ Save Excel to temp file

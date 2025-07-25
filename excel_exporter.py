@@ -3,7 +3,18 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 import re
 
-def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, deductions: list[dict], net_laytime_used_hours: float, deduc: float):
+def float_to_hhmm(hrs_float: float) -> str:
+    # extract whole hours
+    hours = int(hrs_float)
+    # convert fractional part to minutes
+    minutes = int(round((hrs_float - hours) * 60))
+    # handle the case where rounding pushes minutes to 60
+    if minutes == 60:
+        hours += 1
+        minutes = 0
+    return f"{hours:02d}:{minutes:02d}"
+
+def generate_excel_from_extracted_data(metadata: dict, deductions: list[dict], net_laytime_used_hours: float):
     wb = Workbook()
     ws = wb.active
     ws.title = "LAY TIME CALCULATIONS"
@@ -43,9 +54,8 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
         ["Vessel Name :", metadata.get("Vessel Name", ""), "", "", "PORT :", metadata.get("Port", "")],
         ["A/C :", a_c, "", "", "QUANTITY :", metadata.get("Quantity", "")],
         ["TERMS :", metadata.get("TERMS", ""), "DISRATE :", metadata.get("DISRATE", ""), "NOR TENDERED :", metadata.get("NOR TENDERED", "")], 
-        ["PRODUCT :", metadata.get("PRODUCT", "")],
-        ["LTC  AT :", metadata.get("LTC AT", "")],
-        ["VESSEL ARRIVED :", metadata.get("Vessel Arrival", ""), "", "", "VESSEL BERTHED :", metadata.get("Vessel Berthed", "")],
+        ["PRODUCT :", metadata.get("PRODUCT", ""), "", "", "VESSEL ARRIVED :", metadata.get("Vessel Arrival", "")],
+        ["LTC  AT :", metadata.get("LTC AT", ""), "", "", "VESSEL BERTHED :", metadata.get("Vessel Berthed", "")],
         ["DEMMURAGE :", metadata.get("DEMMURAGE", ""), "", "", "COMMENCED CARGO :", metadata.get("Commenced Cargo", "")],
         ["DESPATCH :", metadata.get("DESPATCH", ""), "", "", "COMPLETED CARGO :", metadata.get("Completed Cargo", "")],
         ["LAYTIME TO START COUNTING :", laytime_allowed_value],
@@ -59,43 +69,56 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
 
     # -- Combined Chronological Event and Deduction Table --
     # Adjusted headers to reflect that these are *deducted* events
-    ws.append(["Date", "Day", "From", "To", "Deduction", "To Count", "Deduction Reason"])
+    ws.append(["Date", "Day", "From", "To", "Deductions (HH:MM)", "To Count (HH:MM)", "Deduction Reason"])
     
     # Apply bold font to header
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
 
-    total_deducted_hours = deduc
-
+    deduction_sum = 0
+    to_count_sum = 0
+    prev_date = None
+    prev_day = None
     for d in deductions:
+        date = str(d.get("Date", "")).strip()
+        day = str(d.get("Day", "")).strip()
 
+        # Show date/day only if different from previous row
+        date_to_write = date if date != prev_date else ""
+        day_to_write = day if day != prev_day else ""
         raw_hours = d.get('total_hours')
         try:
-            hours = float(raw_hours)
+            hrs_float = float(raw_hours)
         except (TypeError, ValueError):
-            hours = 0.0
+            hrs_float = 0.0
+
         if d.get("deduct"):
+            deduction_sum += hrs_float
             ws.append([
-                d.get("Date", ""),
-                d.get("Day", ""),
+                date_to_write,
+                day_to_write,
                 d.get("deducted_from", ""),
                 d.get("deducted_to", ""),
-                hours,
+                float_to_hhmm(hrs_float),
                 "",
                 d.get("Remark", "")
         ])
         else:
+            to_count_sum += hrs_float
             ws.append([
-                d.get("Date", ""),
-                d.get("Day", ""),
+                date_to_write,
+                day_to_write,
                 d.get("deducted_from", ""),
                 d.get("deducted_to", ""),
                 "",
-                hours,
+                float_to_hhmm(hrs_float),
                 ""
         ])
+        # Update previous date/day
+        prev_date = date
+        prev_day = day
 
-    ws.append(["TIME ALLOWED :", time_allowed, "", "Total", f"{total_deducted_hours:.2f}", ""])
+    ws.append(["TIME ALLOWED :", time_allowed, "", "Total", float_to_hhmm(deduction_sum), float_to_hhmm(to_count_sum)])
 
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
@@ -107,10 +130,6 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
         cell.alignment = Alignment(horizontal="left", vertical="top") # Ensure alignment for this row too
         cell.font = Font(bold=True)
 
-    print(f"time_used: {time_used}")
-    print(f"type time_used: {type(time_used)}")
-    print(f"time_allowed: {time_allowed}")
-    print(f"type time_allowed: {type(time_allowed)}")
     difference = round(float(time_used) - float(time_allowed), 4)
     if difference > 0:
         rate = float(metadata.get("DEMMURAGE", 0))
