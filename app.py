@@ -435,79 +435,79 @@ if st.button("Extract and Analyze") and uploaded_files:
 
         nor_df = split_nor_period(pd.DataFrame(blocks), metadata["LTC AT"])
 
-        adjusted_nor_df = nor_df.copy()
+        # adjusted_nor_df = nor_df.copy()
 
-        # Ensure 'date' is a proper date (not datetime) for grouping
-        adjusted_nor_df['date'] = pd.to_datetime(
-            adjusted_nor_df['date'],
-            dayfirst=True
-        ).dt.date
+        # # Ensure 'date' is a proper date (not datetime) for grouping
+        # adjusted_nor_df['date'] = pd.to_datetime(
+        #     adjusted_nor_df['date'],
+        #     dayfirst=True
+        # ).dt.date
 
-        # 1) NATIONAL HOLIDAYS
-        # Identify dates where reason mentions 'holiday'
-        holiday_dates = adjusted_nor_df[
-            adjusted_nor_df['reason'].str.contains('holiday', case=False, na=False)
-        ]['date'].unique()
+        # # 1) NATIONAL HOLIDAYS
+        # # Identify dates where reason mentions 'holiday'
+        # holiday_dates = adjusted_nor_df[
+        #     adjusted_nor_df['reason'].str.contains('holiday', case=False, na=False)
+        # ]['date'].unique()
 
-        # Build one full-day row per holiday date
-        holiday_rows = pd.DataFrame({
-            'date':    holiday_dates,
-            'day':     [pd.to_datetime(d).day_name() for d in holiday_dates],
-            'start_time': ['00:00'] * len(holiday_dates),
-            'end_time':   ['23:59'] * len(holiday_dates),
-            'reason': ['National Holiday'] * len(holiday_dates)
-        })
+        # # Build one full-day row per holiday date
+        # holiday_rows = pd.DataFrame({
+        #     'date':    holiday_dates,
+        #     'day':     [pd.to_datetime(d).day_name() for d in holiday_dates],
+        #     'start_time': ['00:00'] * len(holiday_dates),
+        #     'end_time':   ['23:59'] * len(holiday_dates),
+        #     'reason': ['National Holiday'] * len(holiday_dates)
+        # })
 
-        # 2) SUNDAYS
-        # Identify all Sundays in the data
-        sunday_mask = pd.to_datetime(adjusted_nor_df['date']).dt.dayofweek == 6  # Monday=0 … Sunday=6
-        sunday_dates = adjusted_nor_df[sunday_mask]['date'].unique()
+        # # 2) SUNDAYS
+        # # Identify all Sundays in the data
+        # sunday_mask = pd.to_datetime(adjusted_nor_df['date']).dt.dayofweek == 6  # Monday=0 … Sunday=6
+        # sunday_dates = adjusted_nor_df[sunday_mask]['date'].unique()
 
-        # Build one full-day row per Sunday
-        sunday_rows = pd.DataFrame({
-            'date':    sunday_dates,
-            'day':     ['Sunday'] * len(sunday_dates),
-            'start_time': ['00:00'] * len(sunday_dates),
-            'end_time':   ['23:59'] * len(sunday_dates),
-            'reason': ['Sunday'] * len(sunday_dates)
-        })
+        # # Build one full-day row per Sunday
+        # sunday_rows = pd.DataFrame({
+        #     'date':    sunday_dates,
+        #     'day':     ['Sunday'] * len(sunday_dates),
+        #     'start_time': ['00:00'] * len(sunday_dates),
+        #     'end_time':   ['23:59'] * len(sunday_dates),
+        #     'reason': ['Sunday'] * len(sunday_dates)
+        # })
 
-        # 3) FILTER OUT original holiday/Sunday events
-        filtered = adjusted_nor_df[
-            ~(
-                adjusted_nor_df['date'].isin(holiday_dates) |
-                pd.to_datetime(adjusted_nor_df['date']).dt.dayofweek.eq(6)
-            )
-        ]
+        # # 3) FILTER OUT original holiday/Sunday events
+        # filtered = adjusted_nor_df[
+        #     ~(
+        #         adjusted_nor_df['date'].isin(holiday_dates) |
+        #         pd.to_datetime(adjusted_nor_df['date']).dt.dayofweek.eq(6)
+        #     )
+        # ]
 
-        # 4) CONCATENATE & SORT
-        adjusted_nor_df = pd.concat([filtered, holiday_rows, sunday_rows], ignore_index=True)
-        adjusted_nor_df = adjusted_nor_df.sort_values(['date', 'start_time']).reset_index(drop=True)
+        # # 4) CONCATENATE & SORT
+        # adjusted_nor_df = pd.concat([filtered, holiday_rows, sunday_rows], ignore_index=True)
+        # adjusted_nor_df = adjusted_nor_df.sort_values(['date', 'start_time']).reset_index(drop=True)
 
-        # 5) Reorder columns
-        cols = ['date', 'day', 'start_time', 'end_time', 'reason']
-        adjusted_nor_df = adjusted_nor_df[cols]
+        # # 5) Reorder columns
+        # cols = ['date', 'day', 'start_time', 'end_time', 'reason']
+        # adjusted_nor_df = adjusted_nor_df[cols]
 
-        # 6) Move Notice of Readiness row(s) to the very top
-        nor_mask = adjusted_nor_df['reason'].str.contains('notice of readiness period', case=False, na=False)
-        nor_rows   = adjusted_nor_df[nor_mask]
-        other_rows = adjusted_nor_df[~nor_mask]
+        # # 6) Move Notice of Readiness row(s) to the very top
+        # nor_mask = adjusted_nor_df['reason'].str.contains('notice of readiness period', case=False, na=False)
+        # nor_rows   = adjusted_nor_df[nor_mask]
+        # other_rows = adjusted_nor_df[~nor_mask]
 
-        adjusted_nor_df = pd.concat([nor_rows, other_rows], ignore_index=True)
+        # adjusted_nor_df = pd.concat([nor_rows, other_rows], ignore_index=True)
 
-        # 7) Display
-        st.dataframe(adjusted_nor_df)
+        # # 7) Display
+        # st.dataframe(adjusted_nor_df)
 
         # --- NEW LOGIC FOR GAP FILLING AND FINAL RECORDS using Gemini ---
         # st.header("✨ Refining Chronological Events with Gemini (Gap Filling)")
-
+        st.dataframe(nor_df)
         # Prepare data for Gemini prompt
         # Ensure date, start_time, end_time columns are strings before sending to Gemini
-        adjusted_nor_df['date'] = adjusted_nor_df['date'].astype(str)
-        adjusted_nor_df['start_time'] = adjusted_nor_df['start_time'].astype(str)
-        adjusted_nor_df['end_time'] = adjusted_nor_df['end_time'].astype(str) # Convert to string, NaNs become "nan"
+        nor_df['date'] = nor_df['date'].astype(str)
+        nor_df['start_time'] = nor_df['start_time'].astype(str)
+        nor_df['end_time'] = nor_df['end_time'].astype(str) # Convert to string, NaNs become "nan"
 
-        events_for_gemini = adjusted_nor_df.to_dict(orient='records')
+        events_for_gemini = nor_df.to_dict(orient='records')
         events_json_string = json.dumps(events_for_gemini, indent=2)
 
         final_records, _ = chronological_events(events_json_string, blocks)

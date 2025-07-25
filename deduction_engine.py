@@ -57,6 +57,7 @@ def analyze_event_against_clauses(event: dict, clause_texts: list[str]) -> dict:
         5.  **Calculate Duration:** Compute the total duration of the event in hours.
         6.  **Keep "deduct: true" for Sundays specially if something like "Sundays are excluded, even if used" is mentioned in the clause.
         7.  **Keep "deduct: true" for Notice of Readiness period.
+        8.  **Keep "deduct":false if discharging is taking place.
 
         Return a **single, clean JSON object** in the following strict format. Do not include any other text or explanations outside the JSON block. Every remark should return corresponding clause and deduction block.
 
