@@ -59,7 +59,7 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
 
     # -- Combined Chronological Event and Deduction Table --
     # Adjusted headers to reflect that these are *deducted* events
-    ws.append(["Date", "Day", "From", "To", "Deducted Hours", "Deduction Reason"])
+    ws.append(["Date", "Day", "From", "To", "Deduction", "To Count", "Deduction Reason"])
     
     # Apply bold font to header
     for cell in ws[ws.max_row]:
@@ -74,19 +74,28 @@ def generate_excel_from_extracted_data(metadata: dict, nor_df: pd.DataFrame, ded
             hours = float(raw_hours)
         except (TypeError, ValueError):
             hours = 0.0
+        if d.get("deduct"):
+            ws.append([
+                d.get("Date", ""),
+                d.get("Day", ""),
+                d.get("deducted_from", ""),
+                d.get("deducted_to", ""),
+                hours,
+                "",
+                d.get("Remark", "")
+        ])
+        else:
+            ws.append([
+                d.get("Date", ""),
+                d.get("Day", ""),
+                d.get("deducted_from", ""),
+                d.get("deducted_to", ""),
+                "",
+                hours,
+                ""
+        ])
 
-        ws.append([
-            d.get("Date", ""),
-            d.get("Day", ""),
-            d.get("deducted_from", ""),
-            d.get("deducted_to", ""),
-            hours,
-            d.get("reason", "")
-    ])
-        
-    ws.append([])
-
-    ws.append(["TIME ALLOWED :", time_allowed, "", "", "", "Total", f"{total_deducted_hours:.2f}", ""])
+    ws.append(["TIME ALLOWED :", time_allowed, "", "Total", f"{total_deducted_hours:.2f}", ""])
 
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
