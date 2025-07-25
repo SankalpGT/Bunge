@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 import json
 import tempfile
 from extractor import extract_with_gemini
@@ -106,29 +105,6 @@ def split_nor_period(df: pd.DataFrame, laytime_commencement: str) -> pd.DataFram
     out['end_time']   = out['end_time'].dt.strftime("%Y-%m-%d %H:%M")
     return out
 
-def parse_working_hours(text):
-    """
-    Extract working hours for Mon-Fri and Sat from text strings like:
-    'Monday to Friday: 09:00 to 18:00' and 'Saturday: 09:00 to 13:00'.
-    Returns a dict with keys 'mon_fri' and/or 'sat' if found, else None.
-    """
-    mon_fri_pattern = re.compile(
-        r"(\')*(?:Monday|Mon)\s*(?:to|-|To)\s*(?:Friday|Fri)(\')*[:\s]*?(\')*(\d{2}:\d{2})\s*(?:to|-)\s*(\d{2}:\d{2})(\')*",
-        re.IGNORECASE
-    )
-    sat_pattern = re.compile(
-        r"(\')*(?:Saturday|Sat|saturday|sat)(\')*[:\s]*?(\')*(\d{2}:\d{2})\s*(?:to|-)\s*(\d{2}:\d{2})(\')*",
-        re.IGNORECASE
-    )
-    wh = {}
-    mf_match = mon_fri_pattern.search(text)
-    sat_match = sat_pattern.search(text)
-    if mf_match:
-        wh["mon_fri"] = (mf_match.group(1), mf_match.group(2))
-    if sat_match:
-        wh["sat"] = (sat_match.group(1), sat_match.group(2))
-    return wh if wh else None
-
 # # Helper to flatten nested dicts/lists into a list of strings
 def collect_strings(value):
     if isinstance(value, str):
@@ -148,42 +124,42 @@ def collect_strings(value):
         return []
 
 # Generic function to find any nested time dict without relying on key name
-def find_time_dict(d):
-    if isinstance(d, dict):
-        # check if this dict contains time-like keys
-        for k in d.keys():
-            if re.search(r"(Monday to Friday|mon_fri|norHours|workingHours|Saturday)", k, re.IGNORECASE):
-                return d
-        for k,v in d.items():
-            if re.search(r"(Monday to Friday|mon_fri|norHours|workingHours|Saturday)", k, re.IGNORECASE):
-                return d
-        # recurse
-        for v in d.values():
-            found = find_time_dict(v)
-            if found:
-                return found
-    elif isinstance(d, list):
-        for item in d:
-            found = find_time_dict(item)
-            if found:
-                return found
-    return None
+# def find_time_dict(d):
+#     if isinstance(d, dict):
+#         # check if this dict contains time-like keys
+#         for k in d.keys():
+#             if re.search(r"(Monday to Friday|mon_fri|norHours|workingHours|Saturday)", k, re.IGNORECASE):
+#                 return d
+#         for k,v in d.items():
+#             if re.search(r"(Monday to Friday|mon_fri|norHours|workingHours|Saturday)", k, re.IGNORECASE):
+#                 return d
+#         # recurse
+#         for v in d.values():
+#             found = find_time_dict(v)
+#             if found:
+#                 return found
+#     elif isinstance(d, list):
+#         for item in d:
+#             found = find_time_dict(item)
+#             if found:
+#                 return found
+#     return None
 
 # Function to get working hours for a given datetime
-def get_working_hours(dt):
-    default = {"mon_fri": ("09:00", "17:00"), "sat": ("09:00", "13:00")}
-    hours = st.session_state.get("working_hours", default)
-    weekday = dt.weekday()
-    if weekday < 5:
-        start_str, end_str = hours["mon_fri"]
-    elif weekday == 5:
-        start_str, end_str = hours["sat"]
-    else:
-        return None, None
+# def get_working_hours(dt):
+#     default = {"mon_fri": ("09:00", "17:00"), "sat": ("09:00", "13:00")}
+#     hours = st.session_state.get("working_hours", default)
+#     weekday = dt.weekday()
+#     if weekday < 5:
+#         start_str, end_str = hours["mon_fri"]
+#     elif weekday == 5:
+#         start_str, end_str = hours["sat"]
+#     else:
+#         return None, None
     
-    start = datetime.combine(dt.date(), datetime.strptime(start_str, "%H:%M").time())
-    end   = datetime.combine(dt.date(), datetime.strptime(end_str, "%H:%M").time())
-    return start, end
+#     start = datetime.combine(dt.date(), datetime.strptime(start_str, "%H:%M").time())
+#     end   = datetime.combine(dt.date(), datetime.strptime(end_str, "%H:%M").time())
+#     return start, end
 
 # Upload section
 st.header("Upload Documents")
@@ -201,7 +177,7 @@ if st.button("Extract and Analyze") and uploaded_files:
     laytime_commencement = ""
     extracted_data = {}
     all_events = []
-    st.session_state.pop("working_hours", None)
+    # st.session_state.pop("working_hours", None)
 
     for uploaded_file in uploaded_files:
         file_name = uploaded_file.name
@@ -245,22 +221,22 @@ if st.button("Extract and Analyze") and uploaded_files:
             metadata["DISRATE"] = structured_data.get("disrate")
             metadata["TERMS"] = structured_data.get("terms")
          
-            work_hours = {"mon_fri": None, "sat": None}
+            # work_hours = {"mon_fri": None, "sat": None}
          
-            working_hour = structured_data.get("working_hours")
-            time_dict = find_time_dict(working_hour)
-            if time_dict:
-                # parse all entries in that dict
-                for k, v in time_dict.items():
-                    if isinstance(v, str):
-                        times = re.findall(r"(\d{2}:\d{2})", v)
-                        if len(times) == 2:
-                            if re.search(r"(Monday to Friday|mon_fri)", k, re.IGNORECASE):
-                                work_hours["mon_fri"] = (times[0], times[1])
-                                found_mf = True
-                            elif re.search(r"(saturday|sat)", k, re.IGNORECASE):
-                                work_hours["sat"] = (times[0], times[1])
-                                found_sat = True
+            # working_hour = structured_data.get("working_hours")
+            # time_dict = find_time_dict(working_hour)
+            # if time_dict:
+            #     # parse all entries in that dict
+            #     for k, v in time_dict.items():
+            #         if isinstance(v, str):
+            #             times = re.findall(r"(\d{2}:\d{2})", v)
+            #             if len(times) == 2:
+            #                 if re.search(r"(Monday to Friday|mon_fri)", k, re.IGNORECASE):
+            #                     work_hours["mon_fri"] = (times[0], times[1])
+            #                     found_mf = True
+            #                 elif re.search(r"(saturday|sat)", k, re.IGNORECASE):
+            #                     work_hours["sat"] = (times[0], times[1])
+            #                     found_sat = True
 
             raw_secs = (
                 structured_data.get("Sections")
@@ -307,7 +283,7 @@ if st.button("Extract and Analyze") and uploaded_files:
                     # single non-dict, non-list value
                     clause_texts.append(f"{norm_heading}: {body}")
             
-            st.session_state["working_hours"] = work_hours
+            # st.session_state["working_hours"] = work_hours
             
         # SoF and others: collect chronological events
         else:
@@ -350,7 +326,6 @@ if st.button("Extract and Analyze") and uploaded_files:
             if any("timestamp" in ev for ev in all_events):
                 all_events.sort(key=lambda x: x["timestamp"])
 
-
         # Upload structured result to S3
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{doc_type}_{timestamp}.json"
@@ -392,7 +367,7 @@ if st.button("Extract and Analyze") and uploaded_files:
                     reason   = e.get("remarks", "")
                     ranges.append(("", "", start_dt, end_dt, label, reason))
 
-            # 2) For each (start, end), slice into working-hour blocks
+            # # 2) For each (start, end), slice into working-hour blocks
             for date_str, day_str, start_dt, end_dt, label, reason in ranges:
                 if end_dt is None:
                     blk = {
@@ -406,39 +381,52 @@ if st.button("Extract and Analyze") and uploaded_files:
                         blk["event_phase"] = label
                     blocks.append(blk)
                     continue
-
-                curr = start_dt
-                while curr < end_dt:
-                    ws, we = get_working_hours(curr)
-                    if ws and we:
-                        seg_start = max(curr, ws)
-                        seg_end   = min(end_dt, we)
-                        if seg_start < seg_end:
-                            blk = {
-                                "date" : date_str,
-                                "day" : day_str,
-                                "start_time": seg_start.strftime("%Y-%m-%d %H:%M"),
-                                "end_time":   seg_end.strftime("%Y-%m-%d %H:%M"),
-                                "reason":     reason
-                            }
-                            if label:
-                                blk["event_phase"] = label
-                            blocks.append(blk)
-                    else:
-                        blk = {
-                                "date" : date_str,
-                                "day" : day_str,
-                                "start_time": curr.strftime("%Y-%m-%d %H:%M"),
-                                "end_time":   end_dt.strftime("%Y-%m-%d %H:%M"),
-                                "reason":     reason
-                            }
-                        if label:
-                            blk["event_phase"] = label
-                        blocks.append(blk)
-                    # bump to next calendar day midnight
-                    curr = (curr + timedelta(days=1)).replace(hour=0, minute=0)
+                else:
+                    blk = {
+                        "date":        date_str,
+                        "day":         day_str,
+                        "start_time":  start_dt.strftime("%Y-%m-%d %H:%M"),
+                        "end_time":    end_dt.strftime("%Y-%m-%d %H:%M"),
+                        "reason":      reason
+                    }
+                    if label:
+                        blk["event_phase"] = label
+                    blocks.append(blk)
 
             return blocks
+                # curr = start_dt
+                # while curr < end_dt:
+            #         ws, we = get_working_hours(curr)
+            #         if ws and we:
+            #             seg_start = max(curr, ws)
+            #             seg_end   = min(end_dt, we)
+            #             if seg_start < seg_end:
+            #                 blk = {
+            #                     "date" : date_str,
+            #                     "day" : day_str,
+            #                     "start_time": seg_start.strftime("%Y-%m-%d %H:%M"),
+            #                     "end_time":   seg_end.strftime("%Y-%m-%d %H:%M"),
+            #                     "reason":     reason
+            #                 }
+            #                 if label:
+            #                     blk["event_phase"] = label
+            #                 blocks.append(blk)
+            #         else:
+            #             blk = {
+            #                     "date" : date_str,
+            #                     "day" : day_str,
+            #                     "start_time": curr.strftime("%Y-%m-%d %H:%M"),
+            #                     "end_time":   end_dt.strftime("%Y-%m-%d %H:%M"),
+            #                     "reason":     reason
+            #                 }
+            #             if label:
+            #                 blk["event_phase"] = label
+            #             blocks.append(blk)
+            #         # bump to next calendar day midnight
+            #         curr = (curr + timedelta(days=1)).replace(hour=0, minute=0)
+            # return ranges
+            
+            
 
         # …later…
         blocks = build_event_blocks(all_events)
