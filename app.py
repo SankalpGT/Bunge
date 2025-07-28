@@ -4,7 +4,6 @@ import tempfile
 from extractor import extract_with_gemini
 from chronological_event import chronological_events
 from deduction_engine import analyze_event_against_clauses
-from s3_handler import upload_to_s3
 from laytime_agent import extract_metadata_from_docs
 from laytime_agent import LaytimeCalculator
 from excel_exporter import generate_excel_from_extracted_data
@@ -326,12 +325,6 @@ if st.button("Extract and Analyze") and uploaded_files:
             if any("timestamp" in ev for ev in all_events):
                 all_events.sort(key=lambda x: x["timestamp"])
 
-        # Upload structured result to S3
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{doc_type}_{timestamp}.json"
-        # filename = f"{doc_type}.json"
-        upload_to_s3(json.dumps(structured_data, indent=2), f"structured/{filename}")
-
     # Step 2: Ensure required documents exist
     if not all(req in uploaded_doc_types for req in REQUIRED_DOCUMENTS):
         st.error("❌ Please upload both Contract and SoF files. They are required for clause–remark matching.")
@@ -617,11 +610,6 @@ if st.button("Extract and Analyze") and uploaded_files:
                         st.markdown(f"**From:** `{d.get('deducted_from', 'N/A')}` | **To:** `{d.get('deducted_to', 'N/A')}`")
                         st.markdown(f"**Hours:** `{d.get('total_hours', 0.0)}`")
 
-                upload_to_s3(
-                    json.dumps(deductions, indent=2),
-                    f"deductions/final_deductions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                )
-                st.success("✅ Deductions saved to S3.")
         else:
             st.warning("⚠️ Cannot run deduction engine. Clause texts or event records are missing.")
 

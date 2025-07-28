@@ -16,7 +16,6 @@
 - Python 3.9 or higher  
 - A **Google Cloud API key** with Gemini access  
 - Vertex AI API enabled on your GCP project  
-- **AWS ACCESS KEY** and **AWS SECRET ACCESS KEY** with AWS S3 storage bucket access.
 
 ---
 
@@ -47,14 +46,10 @@ Export in bash
 ```bash
 #For Mac
   export GOOGLE_API_KEY=your-google-api-key-here
-  export AWS_ACCESS_KEY=your-aws-access-key-here
-  export AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
 ```
 ```bash
 #For Windows
   set GOOGLE_API_KEY=your-google-api-key-here
-  set AWS_ACCESS_KEY=your-aws-access-key-here
-  set AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
 ```
 (Get API key from project credentials of your GCP)
 
