@@ -18,7 +18,7 @@ def chronological_events(events_json_string, blocks):
     prompt = f"""
         You are an expert maritime assistant.
 
-        Given the following chronological list of time blocks (events), your task is to identify and fill any temporal gaps between consecutive events. For each gap identified, you must insert a new event block with an inferred reason, from the "block['Reason']" of corresponding date and time.
+        Given the following chronological list of time blocks (events), your task is to identify and fill any temporal gaps between consecutive events. For each gap identified, you must insert a new event block with an inferred reason, from the "events_json_string" of corresponding date and time.
 
             Input Events (JSON array):
             ```json

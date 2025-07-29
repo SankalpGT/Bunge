@@ -1,6 +1,6 @@
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
 import re
 
 def float_to_hhmm(hrs_float: float) -> str:
@@ -18,6 +18,13 @@ def generate_excel_from_extracted_data(metadata: dict, deductions: list[dict], n
     wb = Workbook()
     ws = wb.active
     ws.title = "LAY TIME CALCULATIONS"
+
+    #--- Define Colors ---
+    # From the first screenshot, identifying approximate colors
+    # Light Green for "To Count (HH:MM)" and "TIME ALLOWED"
+    LIGHT_GREEN = PatternFill(start_color="CCFFCC", end_color="CCFFCC", fill_type="solid")
+    # Grey for header cells (like "DEMMURAGE" label)
+    LIGHT_GREY = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
 
     # --- Calculate Laytime Allowed ---
     time_allowed = ""
@@ -58,12 +65,26 @@ def generate_excel_from_extracted_data(metadata: dict, deductions: list[dict], n
         ["LTC  AT :", metadata.get("LTC AT", ""), "", "", "VESSEL BERTHED :", metadata.get("Vessel Berthed", "")],
         ["DEMMURAGE :", metadata.get("DEMMURAGE", ""), "", "", "COMMENCED CARGO :", metadata.get("Commenced Cargo", "")],
         ["DESPATCH :", metadata.get("DESPATCH", ""), "", "", "COMPLETED CARGO :", metadata.get("Completed Cargo", "")],
-        ["LAYTIME TO START COUNTING :", laytime_allowed_value],
+        ["LAYTIME TO START COUNTING :",deductions[1].get('Date'), laytime_allowed_value,deductions[1].get('Day')],
         ["TIME ALLOWED :", time_allowed]
     ]
 
     for row in header_rows:
         ws.append(row)
+
+    ws['B1'].fill = LIGHT_GREEN
+    ws['B2'].fill = LIGHT_GREEN
+    ws['B3'].fill = LIGHT_GREEN
+    ws['B4'].fill = LIGHT_GREEN
+    ws['B5'].fill = LIGHT_GREEN
+    ws['D3'].fill = LIGHT_GREEN
+    ws['F1'].fill = LIGHT_GREEN
+    ws['F2'].fill = LIGHT_GREEN
+    ws['F3'].fill = LIGHT_GREEN
+    ws['F4'].fill = LIGHT_GREEN
+    ws['F5'].fill = LIGHT_GREEN
+    ws['F6'].fill = LIGHT_GREEN
+    ws['F7'].fill = LIGHT_GREEN
 
     ws.append([])  # Spacer row
 
@@ -122,13 +143,15 @@ def generate_excel_from_extracted_data(metadata: dict, deductions: list[dict], n
 
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
-
+        cell.fill = LIGHT_GREEN
+    
     time_used = f"{net_laytime_used_hours/24.0:.4f}"
     ws.append(["TIME USED", time_used])
 
     for cell in ws[ws.max_row]:
         cell.alignment = Alignment(horizontal="left", vertical="top") # Ensure alignment for this row too
         cell.font = Font(bold=True)
+        cell.fill = LIGHT_GREEN
 
     difference = round(float(time_used) - float(time_allowed), 4)
     if difference > 0:
@@ -136,12 +159,14 @@ def generate_excel_from_extracted_data(metadata: dict, deductions: list[dict], n
         cost = difference * rate
         ws.append(["DEMMURAGE", f"{difference:.4f}"])
         ws.append(["Rate US$", rate, f"{cost:.2f}"])
+        ws['B6'].fill = LIGHT_GREY
     elif difference < 0:
         des_pull = abs(difference)
         rate = float(metadata.get("DESPATCH", 0))
         credit = des_pull * rate
         ws.append(["DESPATCH", f"{des_pull:.4f}"])
         ws.append(["Rate US$", rate, f"{credit:.2f}"])
+        ws['B7'].fill = LIGHT_GREY
     else:
         ws.append(["NO DEMURRAGE OR DESPATCH APPLICABLE", "0"])
 
@@ -149,6 +174,7 @@ def generate_excel_from_extracted_data(metadata: dict, deductions: list[dict], n
     for row in ws.iter_rows(min_row=ws.max_row - 3, max_row=ws.max_row):
         for cell in row:
             cell.font = Font(bold=True)
+            cell.fill = LIGHT_GREEN
 
     # -- Align all cells left --
     for row in ws.iter_rows():
