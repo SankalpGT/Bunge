@@ -9,7 +9,7 @@ import numbers
 from typing import List, Dict
 
 # ---------- CONFIG ----------
-PROJECT_ID = "pdf-extraction-464009"
+PROJECT_ID = "laytimecalculation"
 LOCATION = "global"
 MODEL = "models/gemini-1.5-flash-latest"
 

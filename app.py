@@ -26,7 +26,7 @@ def extract_nor_delay_hours(clause_text: str) -> int:
     """
     Parse “<N> hours after” from the NOR clause text.
     """
-    pattern = r'(\d+)(?:\s*\([^)]*\))?\s*hours?\s+after'
+    pattern = r'(\d+)(?:\s*\([^)]*\))?\s*hours?(\s+after|later)?'
     m = re.search(pattern, clause_text, re.IGNORECASE)
     return int(m.group(1)) if m else 0
 
@@ -104,23 +104,6 @@ def split_nor_period(df: pd.DataFrame, laytime_commencement: str) -> pd.DataFram
     out['end_time']   = out['end_time'].dt.strftime("%Y-%m-%d %H:%M")
     return out
 
-# # Helper to flatten nested dicts/lists into a list of strings
-def collect_strings(value):
-    if isinstance(value, str):
-        return [value]
-    elif isinstance(value, dict):
-        texts = []
-        for k, v in value.items():
-            texts.append(str(k))
-            texts.extend(collect_strings(v))
-        return texts
-    elif isinstance(value, list):
-        texts = []
-        for item in value:
-            texts.extend(collect_strings(item))
-        return texts
-    else:
-        return []
 
 # Generic function to find any nested time dict without relying on key name
 # def find_time_dict(d):
@@ -171,7 +154,6 @@ uploaded_files = st.file_uploader(
 if st.button("Extract and Analyze") and uploaded_files:
     uploaded_doc_types = []
     clause_texts = []
-    clause_texts1 = []
     metadata = {}
     laytime_commencement = ""
     extracted_data = {}
@@ -255,9 +237,6 @@ if st.button("Extract and Analyze") and uploaded_files:
                 heading = section.get("heading", "") or section.get("title", "")
                 body    = section.get("body", {}) or section.get("content", "")
 
-                all_texts = [heading] + collect_strings(body)
-                clause_texts1.extend(all_texts)
-
                 norm_heading = re.sub(r'[^a-zA-Z0-9]+', '_', heading.lower()).strip('_')
 
                 if isinstance(body, dict):
@@ -287,7 +266,7 @@ if st.button("Extract and Analyze") and uploaded_files:
         # SoF and others: collect chronological events
         else:
             st.markdown(f"Struc : {structured_data}")
-            events = structured_data.get("Chronological Events", [])
+            events = structured_data.get("Chronological Events", []) or structured_data.get("chronological_events", [])
             for e in events:
                 if e.get("Date & Time"):
                     try:
@@ -340,12 +319,13 @@ if st.button("Extract and Analyze") and uploaded_files:
             # 1) Turn each raw event into a (start, end, label, reason) tuple
             for idx, e in enumerate(events):
                 # Case A: split-fields event
-                if e.get("date") and e.get("start_time"):
+                if e.get("date") and (e.get("start_time") or e.get("time")):
                     # parse with dayfirst=True for “DD/MM/YYYY”
+                    start_time = e.get("start_time") or e.get("time")
                     end_dt = None
                     date_str = e["date"]
                     day_str  = e.get("day", "")
-                    start_dt = parser.parse(f"{date_str} {e['start_time']}", dayfirst=True)
+                    start_dt = parser.parse(f"{date_str} {start_time}", dayfirst=True)
                     if e.get("end_time"):
                         end_dt = parser.parse(f"{date_str} {e['end_time']}", dayfirst=True)
                     label  = e.get("Event", "")
@@ -504,6 +484,7 @@ if st.button("Extract and Analyze") and uploaded_files:
         events_json_string = json.dumps(events_for_gemini, indent=2)
 
         final_records, _ = chronological_events(events_json_string, blocks)
+        st.markdown(f"final_records:{final_records}")
 
         # Convert date/time strings in final_records to proper Python objects for sorting
         # This step is crucial for robust sorting and avoiding ParserErrors.

@@ -4,7 +4,7 @@ from google.cloud import aiplatform
 import google.generativeai as genai
 
 # ---------- CONFIG ----------
-PROJECT_ID = "pdf-extraction-464009"
+PROJECT_ID = "laytimecalculation"
 LOCATION = "global"
 MODEL = "models/gemini-1.5-flash-latest"
 
@@ -44,7 +44,7 @@ def chronological_events(events_json_string, blocks):
             5. **If event_json_string['Reason'] is a 'National Holiday'/'Holiday' then club all the events happening on that day to a single row with date, day, start_time as 00:00 , end_time as 23:59 and Reason as 'National Holiday'.
             6. **If day is 'Sunday' then club all the events happening on that day to a single row with date, day, start_time as 00:00 , end_time as 23:59 and Reason as 'Sunday'.
             7. **Make sure there is start_time and end_time for every row. 
-            8. **The last entry should be of when the discharging has completed at a particular berth. Clip all the events after that. Eg: Completed discharging operations at Vicentin Berth. The end_time of this event should be the same the start_time if the end_time is originally empty.
+            8. **The last entry should be of when the discharging has completed at a particular berth. Remove all the events after that. Eg: Completed discharging operations at Vicentin Berth. The end_time of this event should be the same the start_time if the end_time is originally empty.
             Ensure the output is *only* the JSON array, with no additional text or commentary.
     s"""
 

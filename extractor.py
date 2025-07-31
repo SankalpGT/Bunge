@@ -6,7 +6,7 @@ from google.cloud import aiplatform
 import google.generativeai as genai
 
 # ---------- CONFIG ----------
-PROJECT_ID = "pdf-extraction-464009"
+PROJECT_ID = "laytimecalculation"
 LOCATION = "global"
 MODEL = "models/gemini-1.5-flash-latest"
 
@@ -50,11 +50,17 @@ def extract_with_gemini(pdf_path):
 
     - If it's a **Statement of Facts**:
         - Extract chronological events with timestamps, event descriptions, and remarks.
-        - **For any time range in “HH:MM/HH:MM” format, do NOT use a single “from_to” field.  
+        - **For any time range in “HH:MM/HH:MM” format, do NOT use a single “from_to” field.
                 Instead split it into two fields:  
                 "start_time": "HH:MM",  
                 "end_time":   "HH:MM"
                 Make sure the names for 'from' is 'start_time and 'to' is 'end_time'**
+        - **If an event occurs at a single point in time (e.g., '14:20'), do not create a single field:
+                Instead split it into two fields: 
+                "start_time": "HH:MM"
+                "end_time": None 
+                Make sure the names for 'from' is 'start_time and 'to' is 'end_time'.Do not make the key as 'time'.**
+        - Ensure all events mentioned in the chronological log are included. 
         - For time in "Date & Time" format keep it the same heading instead of splitting it.
         - Rename the heading of the log table to 'Chronological Events' irrespective of what is given in the document.
     - If it's a **Contract**:
@@ -66,7 +72,7 @@ def extract_with_gemini(pdf_path):
         - Do NOT summarize. Do NOT infer. Just extract and preserve structure from the contract as written.
         - The clauses should be inside "sections" key.
         - The working hours should be framed like "'Monday to Friday' : 'HH:MM to HH:MM'" and "'Saturday' : 'HH:MM to HH:MM'" if provided. Add it to the start of the extracted json file.
-        - Add the time of laytime commencement after working hours in the start as a key value pair of "laytime_commencement":"Time Unit"
+        - Add "laytime_commencement":"Time Unit" for the time of laytime commencement after working hours in the start as a key value pair.
         - Add the Demurrage cost as "demurrage", Despatch Cost as "despatch", Discharge rate "disrate", TERMS of contract as "terms" as seperate key value pairs after "laytime_commencement". Keep only the values of them without units.
     - If it's a **Letter of Protest**:
         - Extract protest reason, submitted by/to, timestamps, signatures
