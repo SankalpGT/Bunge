@@ -8,7 +8,6 @@ from datetime import datetime
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel("models/gemini-1.5-flash-latest")
 
-
 def extract_json(text: str) -> dict:
     """
     Extracts and parses a JSON object from a string, which may contain other text.
